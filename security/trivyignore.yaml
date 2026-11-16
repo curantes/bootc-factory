@@ -1,0 +1,77 @@
+# Trivy vulnerability exceptions (https://trivy.dev/latest/docs/configuration/filtering/).
+#
+# Every entry MUST have a `statement` (why it is not exploitable or accepted)
+# and an `expired_at` date (max 90 days out), after which the gate fails again.
+# Changes need a CODEOWNERS security review.
+#
+# vulnerabilities:
+#   - id: CVE-2026-12345
+#     paths: []                 # optional: limit to packages/paths
+#     statement: "Not reachable: the vulnerable module is never loaded."
+#     expired_at: 2027-01-31
+vulnerabilities:
+  # --- node_exporter v1.12.1 (bound image in the base) --------------------
+  # Latest upstream release; fixes need an upstream rebuild with newer Go
+  # modules. Exposure: the exporter is disabled until configured, listens
+  # only with TLS + basic auth, runs read-only with no capabilities.
+  # Renovate bumps the image as soon as upstream releases. Review on expiry.
+  - id: CVE-2026-56854
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (golang.org/x/crypto/ssh); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-78661
+    paths: ["bin/node_exporter", "bin/prometheus", "bin/promtool", "bin/alertmanager", "bin/amtool"]
+    statement: "golang.org/x/net/html DoS (fixed in x/net 0.62.0) in node_exporter v1.12.1, prometheus v3.16.0 and alertmanager v0.35.0, all latest upstream; awaiting upstream releases. Same exposure as node_exporter: off until web.yml (TLS + auth) exists, read-only, no capabilities. Accepted 2026-11-15 (node_exporter), 2026-11-16 (prometheus role)."
+    expired_at: 2026-12-15
+  - id: CVE-2026-78669
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (golang.org/x/net/http2); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-56851
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (golang.org/x/text); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-111943
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib crypto/x509); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-33818
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib encoding/asn1); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-39821
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib net/http idna); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-46600
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib dns/dnsmessage); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-56853
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib net/http HTTP/2); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-56858
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib html/template); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-56859
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib encoding/xml); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-56860
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib net/url); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-56862
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib crypto/tls); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-78667
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib net/http); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15
+  - id: CVE-2026-97031
+    paths: ["bin/node_exporter"]
+    statement: "node_exporter v1.12.1 (stdlib crypto/tls); awaiting upstream release. Accepted 2026-11-15."
+    expired_at: 2026-12-15

@@ -1,0 +1,26 @@
+# bootc-factory base image: AlmaLinux bootc + CIS Level 2 Server hardening.
+#
+# Build context is the REPOSITORY ROOT (it needs lib/ and keys/).
+# Use `just build base <version>` or scripts/build.sh; both pass the
+# digest-pinned upstream image from images/base/upstream.env.
+ARG UPSTREAM_IMAGE
+FROM ${UPSTREAM_IMAGE}
+
+# Registry namespace our own images are pulled from, e.g. ghcr.io/curantes.
+# Baked into the container signature policy.
+ARG IMAGE_NAMESPACE=localhost
+
+LABEL org.opencontainers.image.title="bootc-base" \
+      org.opencontainers.image.description="CIS Level 2 Server hardened AlmaLinux bootc base image" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      containers.bootc="1"
+
+COPY lib/factory/ /usr/libexec/bootc-factory/
+COPY keys/ /usr/share/bootc-factory/keys/
+COPY images/base/rootfs/ /
+COPY images/base/cis-exceptions.txt /usr/share/bootc-factory/cis-exceptions.d/00-base.txt
+
+RUN /usr/libexec/bootc-factory/base-setup "${IMAGE_NAMESPACE}"
+
+# Must be the last instruction of every image (base and roles).
+RUN /usr/libexec/bootc-factory/finalize

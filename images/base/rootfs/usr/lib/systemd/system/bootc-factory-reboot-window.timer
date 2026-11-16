@@ -1,0 +1,14 @@
+# Override the window per host or role with a drop-in, e.g.
+#   /etc/systemd/system/bootc-factory-reboot-window.timer.d/window.conf
+#   [Timer]
+#   OnCalendar=
+#   OnCalendar=Wed *-*-* 04:00:00
+[Unit]
+Description=bootc reboot window
+
+[Timer]
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

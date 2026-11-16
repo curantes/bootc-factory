@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+# Reboot into a staged bootc deployment during the reboot window.
+# Policy: /etc/bootc-factory/updates.conf  (REBOOT=auto|never)
+set -euo pipefail
+
+REBOOT=auto
+# shellcheck source=/dev/null
+[[ -r /etc/bootc-factory/updates.conf ]] && . /etc/bootc-factory/updates.conf
+
+if ! /usr/libexec/bootc-factory/bootc-state staged; then
+	echo "No staged update; nothing to do."
+	exit 0
+fi
+if [[ $REBOOT != auto ]]; then
+	echo "Update staged, REBOOT=$REBOOT: waiting for an operator reboot."
+	exit 0
+fi
+echo "Update staged; rebooting into it now."
+systemctl reboot

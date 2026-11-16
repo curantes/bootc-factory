@@ -1,0 +1,107 @@
+#cloud-config
+# Example user-data for bootc-prometheus. Attach a second, empty disk for
+# data; it is formatted with the label `prometheus-data` on first boot.
+hostname: prometheus1
+users:
+  - name: admin
+    groups: [wheel]
+    sudo: "ALL=(ALL) ALL"
+    lock_passwd: false
+    hashed_passwd: "$6$REPLACE_ME"
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...REPLACE_ME admin@example
+
+fs_setup:
+  - label: prometheus-data
+    filesystem: xfs
+    device: /dev/vdb          # adjust to your platform's second disk
+    overwrite: false
+
+write_files:
+  # --- Prometheus: TLS + basic auth on :9090 ---
+  - path: /etc/prometheus/web.yml
+    permissions: "0640"
+    owner: root:nobody
+    content: |
+      tls_server_config:
+        cert_file: /etc/prometheus/tls/tls.crt
+        key_file: /etc/prometheus/tls/tls.key
+      basic_auth_users:
+        prometheus: "$2y$10$REPLACE_ME"
+        admin: "$2y$10$REPLACE_ME"
+  - path: /etc/prometheus/secrets/scrape-password
+    permissions: "0640"
+    owner: root:nobody
+    content: REPLACE_ME            # plaintext of the "prometheus" user above
+  - path: /etc/prometheus/tls/ca.crt
+    permissions: "0644"
+    content: |
+      -----BEGIN CERTIFICATE-----
+      REPLACE_ME (CA that signed all prometheus/alertmanager/node_exporter certs)
+      -----END CERTIFICATE-----
+  - path: /etc/prometheus/tls/tls.crt
+    permissions: "0644"
+    content: |
+      -----BEGIN CERTIFICATE-----
+      REPLACE_ME (SAN must include localhost and the VM's DNS name)
+      -----END CERTIFICATE-----
+  - path: /etc/prometheus/tls/tls.key
+    permissions: "0640"
+    owner: root:nobody
+    content: |
+      -----BEGIN PRIVATE KEY-----
+      REPLACE_ME
+      -----END PRIVATE KEY-----
+  - path: /etc/prometheus/file_sd/node/hosts.yml
+    content: |
+      - targets: ["vm1.example.internal:9100", "prometheus1.example.internal:9100"]
+
+  # --- Alertmanager: TLS + basic auth on :9093, real receivers ---
+  - path: /etc/alertmanager/web.yml
+    permissions: "0640"
+    owner: root:nobody
+    content: |
+      tls_server_config:
+        cert_file: /etc/alertmanager/tls/tls.crt
+        key_file: /etc/alertmanager/tls/tls.key
+      basic_auth_users:
+        prometheus: "$2y$10$REPLACE_ME"
+        admin: "$2y$10$REPLACE_ME"
+  - path: /etc/alertmanager/alertmanager.yml
+    permissions: "0640"
+    owner: root:nobody
+    content: |
+      route:
+        receiver: ops
+        group_by: [alertname, instance]
+      receivers:
+        - name: ops
+          email_configs:
+            - to: ops@example.com
+              from: alertmanager@example.com
+              smarthost: smtp.example.com:587
+              auth_username: alertmanager@example.com
+              auth_password_file: /etc/alertmanager/secrets/smtp-password
+  - path: /etc/alertmanager/secrets/smtp-password
+    permissions: "0640"
+    owner: root:nobody
+    content: REPLACE_ME
+  # Same certificate files as Prometheus (or dedicated ones):
+  - path: /etc/alertmanager/tls/tls.crt
+    permissions: "0644"
+    content: |
+      -----BEGIN CERTIFICATE-----
+      REPLACE_ME
+      -----END CERTIFICATE-----
+  - path: /etc/alertmanager/tls/tls.key
+    permissions: "0640"
+    owner: root:nobody
+    content: |
+      -----BEGIN PRIVATE KEY-----
+      REPLACE_ME
+      -----END PRIVATE KEY-----
+
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, restart, var-lib-prometheus.mount]
+  - [systemctl, start, alertmanager.service, prometheus.service]

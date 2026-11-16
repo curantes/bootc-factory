@@ -1,0 +1,58 @@
+# Default Prometheus configuration shipped in the image.
+#
+# Expected from cloud-init (docs/examples/prometheus-user-data.yaml):
+#   /etc/prometheus/web.yml                  TLS + basic auth for :9090
+#   /etc/prometheus/tls/{ca.crt,tls.crt,tls.key}
+#   /etc/prometheus/secrets/scrape-password  password of user "prometheus"
+#   /etc/prometheus/file_sd/node/*.yml       node_exporter targets
+#
+# Local edits survive bootc updates (/etc is 3-way merged).
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus-baseline/*.yml   # shipped in the image (read-only)
+  - /etc/prometheus/rules/*.yml      # site-specific additions
+
+alerting:
+  alertmanagers:
+    - scheme: https
+      tls_config:
+        ca_file: /etc/prometheus/tls/ca.crt
+      basic_auth:
+        username: prometheus
+        password_file: /etc/prometheus/secrets/scrape-password
+      static_configs:
+        - targets: ["localhost:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/tls/ca.crt
+    basic_auth:
+      username: prometheus
+      password_file: /etc/prometheus/secrets/scrape-password
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: alertmanager
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/tls/ca.crt
+    basic_auth:
+      username: prometheus
+      password_file: /etc/prometheus/secrets/scrape-password
+    static_configs:
+      - targets: ["localhost:9093"]
+
+  - job_name: node
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/tls/ca.crt
+    basic_auth:
+      username: prometheus
+      password_file: /etc/prometheus/secrets/scrape-password
+    file_sd_configs:
+      - files: ["/etc/prometheus/file_sd/node/*.yml"]

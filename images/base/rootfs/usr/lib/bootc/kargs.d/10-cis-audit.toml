@@ -1,0 +1,2 @@
+# CIS: audit processes that start before auditd, and size the backlog.
+kargs = ["audit=1", "audit_backlog_limit=8192"]

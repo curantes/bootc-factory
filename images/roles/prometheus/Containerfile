@@ -1,0 +1,20 @@
+# Role: prometheus — Prometheus server + Alertmanager on the bootc-factory base.
+#
+# Build context is this directory. CI injects BASE_IMAGE as the digest of the
+# promoted base image (ghcr.io/curantes/bootc-base:<ver>@sha256:...).
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+LABEL org.opencontainers.image.title="bootc-prometheus" \
+      org.opencontainers.image.description="Prometheus + Alertmanager on the CIS-hardened bootc-factory base" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      containers.bootc="1"
+
+COPY rootfs/ /
+COPY cis-exceptions.txt /usr/share/bootc-factory/cis-exceptions.d/50-prometheus.txt
+
+RUN firewall-offline-cmd --add-service=bootc-prometheus --add-service=bootc-alertmanager \
+ && systemctl enable var-lib-prometheus.mount
+
+# Must be the last instruction: re-applies CIS hardening and lints.
+RUN /usr/libexec/bootc-factory/finalize

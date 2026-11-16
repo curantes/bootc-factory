@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>Alertmanager (bootc-factory)</short>
+  <description>Alertmanager over HTTPS with basic auth.</description>
+  <port protocol="tcp" port="9093"/>
+</service>

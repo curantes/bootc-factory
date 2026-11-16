@@ -1,0 +1,174 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 2 * * *" # nightly: rebuild everything if RPM updates exist
+    - cron: "43 3 * * 0" # weekly: forced rebuild of everything
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild every image
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install linters
+        env:
+          # renovate: datasource=github-releases depName=rhysd/actionlint
+          ACTIONLINT_VERSION: v1.7.12
+        run: |
+          sudo apt-get install -yq shellcheck
+          go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+          echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+      - name: Lint
+        run: scripts/lint.sh
+
+  zizmor:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+
+  plan:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      base: ${{ steps.plan.outputs.base }}
+      roles: ${{ steps.plan.outputs.roles }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Decide what to build
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          FORCE: ${{ inputs.force }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          OWNER: ${{ github.repository_owner }}
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$GH_TOKEN" | podman login ghcr.io -u "$ACTOR" --password-stdin
+          all=false
+          case "$EVENT" in
+            workflow_dispatch) [[ $FORCE == true ]] && all=true ;;
+            schedule)
+              if [[ $SCHEDULE == "43 3 * * 0" ]]; then
+                all=true
+              else
+                all=$(PODMAN=podman scripts/check-updates.sh "ghcr.io/${OWNER,,}")
+              fi
+              ;;
+          esac
+
+          if [[ $all == true ]]; then
+            plan=$(jq -nc --argjson roles "$(scripts/plan.sh images)" '{base: true, roles: $roles}')
+          else
+            case "$EVENT" in
+              pull_request) range="$PR_BASE...HEAD" ;;
+              push)
+                if [[ $BEFORE =~ ^0+$ ]] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+                  range="HEAD~1..HEAD"
+                else
+                  range="$BEFORE..HEAD"
+                fi ;;
+              *) range="" ;;
+            esac
+            files=()
+            [[ -n $range ]] && mapfile -t files < <(git diff --name-only "$range")
+            plan=$(scripts/plan.sh changed "${files[@]}")
+          fi
+          echo "Plan: $plan"
+          echo "base=$(jq -r .base <<<"$plan")" >>"$GITHUB_OUTPUT"
+          echo "roles=$(jq -c .roles <<<"$plan")" >>"$GITHUB_OUTPUT"
+
+  base:
+    needs: [lint, plan]
+    if: needs.plan.outputs.base == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    uses: ./.github/workflows/_image.yml
+    with:
+      image: base
+      publish: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+
+  roles:
+    needs: [lint, plan, base]
+    # Roles build on the base promoted in this run (if any), else on the
+    # currently published base.
+    if: >-
+      !cancelled() &&
+      needs.lint.result == 'success' &&
+      needs.plan.outputs.roles != '[]' &&
+      contains(fromJSON('["success","skipped"]'), needs.base.result)
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(needs.plan.outputs.roles) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    uses: ./.github/workflows/_image.yml
+    with:
+      image: ${{ matrix.role }}
+      publish: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      # On PRs that also change the base, roles still build on the published
+      # base; the base change itself is validated by the base job.
+
+  # Single required status check for branch protection.
+  ci-ok:
+    if: always()
+    needs: [lint, zizmor, plan, base, roles]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: All required jobs passed
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          jq -e 'all(. == "success" or . == "skipped")' <<<"$RESULTS"

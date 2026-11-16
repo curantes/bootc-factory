@@ -1,0 +1,13 @@
+[Unit]
+Description=Rebuild the AIDE baseline after booting a new bootc image
+ConditionPathExists=/run/ostree-booted
+Before=aidecheck.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/bootc-factory/aide-reinit
+Nice=19
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

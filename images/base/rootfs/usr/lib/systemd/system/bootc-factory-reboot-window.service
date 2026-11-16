@@ -1,0 +1,7 @@
+[Unit]
+Description=Reboot into a staged bootc update (reboot window)
+ConditionPathExists=/run/ostree-booted
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/bootc-factory/reboot-if-staged

@@ -1,0 +1,52 @@
+# Self-monitoring for Prometheus and Alertmanager.
+groups:
+  - name: prometheus-self
+    rules:
+      - alert: PrometheusTargetDown
+        expr: up{job=~"prometheus|alertmanager"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.job }} on {{ $labels.instance }} is down"
+
+      - alert: PrometheusConfigReloadFailed
+        expr: max_over_time(prometheus_config_last_reload_successful{job="prometheus"}[5m]) == 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Prometheus failed to reload its configuration"
+
+      - alert: PrometheusRuleEvaluationFailures
+        expr: increase(prometheus_rule_evaluation_failures_total{job="prometheus"}[5m]) > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Prometheus is failing to evaluate rules"
+
+      - alert: PrometheusNotConnectedToAlertmanagers
+        expr: max_over_time(prometheus_notifications_alertmanagers_discovered{job="prometheus"}[5m]) < 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Prometheus is not connected to any Alertmanager"
+
+      - alert: PrometheusNotificationsFailing
+        expr: rate(prometheus_notifications_errors_total{job="prometheus"}[5m]) > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Prometheus fails to send alerts to Alertmanager"
+
+      - alert: AlertmanagerConfigReloadFailed
+        expr: max_over_time(alertmanager_config_last_reload_successful{job="alertmanager"}[5m]) == 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Alertmanager failed to reload its configuration"
+
+      - alert: AlertmanagerNotificationsFailing
+        expr: rate(alertmanager_notifications_failed_total{job="alertmanager"}[5m]) > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Alertmanager fails to deliver notifications via {{ $labels.integration }}"

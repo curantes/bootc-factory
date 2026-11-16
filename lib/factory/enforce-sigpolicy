@@ -1,0 +1,22 @@
+#!/usr/bin/bash
+# Make sure this host verifies image signatures on every future update.
+#
+# A host installed from a disk image tracks its image without signature
+# enforcement. Re-targeting the same image with --enforce-container-sigpolicy
+# records the requirement in the deployment origin; it takes effect after the
+# next reboot (the reboot window).
+set -euo pipefail
+
+state=/usr/libexec/bootc-factory/bootc-state
+mode=$($state sigpolicy)
+if [[ $mode == containerPolicy ]]; then
+	echo "Signature policy already enforced."
+	exit 0
+fi
+image=$($state booted-image)
+if [[ -z $image ]]; then
+	echo "Booted image unknown; skipping." >&2
+	exit 0
+fi
+echo "Signature mode is '$mode'; switching to $image with signature enforcement."
+bootc switch --enforce-container-sigpolicy "$image"

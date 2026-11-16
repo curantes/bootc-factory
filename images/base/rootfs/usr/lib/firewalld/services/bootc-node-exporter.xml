@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>node_exporter (bootc-factory)</short>
+  <description>Prometheus node_exporter over HTTPS with basic auth.</description>
+  <port protocol="tcp" port="9100"/>
+</service>

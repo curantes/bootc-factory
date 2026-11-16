@@ -1,0 +1,81 @@
+#!/usr/bin/bash
+# Base-image-only build steps (called from images/base/Containerfile).
+# Roles never call this; they inherit its result.
+set -euo pipefail
+
+namespace=${1:?usage: base-setup <image-namespace, e.g. ghcr.io/owner>}
+share=/usr/share/bootc-factory
+
+# --- Signing keys --------------------------------------------------------
+shopt -s nullglob
+keys=("$share"/keys/*.pub)
+if ((${#keys[@]} == 0)); then
+	echo "ERROR: keys/ contains no cosign public key (*.pub)." >&2
+	echo "       Run scripts/setup-wizard.sh first (or 'just dev-key' for local builds)." >&2
+	exit 1
+fi
+install -d -m 0755 /etc/pki/containers/bootc-factory
+install -m 0644 "${keys[@]}" /etc/pki/containers/bootc-factory/
+
+# --- Packages ------------------------------------------------------------
+# Pick up errata published after the upstream image was built.
+dnf -y upgrade --refresh
+dnf -y install \
+	aide \
+	audit \
+	cloud-init \
+	firewalld \
+	openscap-scanner \
+	openscap-utils \
+	postfix \
+	python3 \
+	qemu-guest-agent \
+	scap-security-guide
+
+# CIS postfix_network_listening_disabled: local delivery only.
+postconf -e 'inet_interfaces = loopback-only'
+
+# CIS requires sshd drop-ins to be 0600 (git does not keep that mode).
+chmod 0600 /etc/ssh/sshd_config.d/40-bootc-factory.conf
+
+# --- Services ------------------------------------------------------------
+# cloud-init: the pattern used by the upstream bootc examples.
+install -d /usr/lib/systemd/system/default.target.wants
+ln -sf ../cloud-init.target /usr/lib/systemd/system/default.target.wants/cloud-init.target
+systemctl enable firewalld.service auditd.service tmp.mount
+# Replace "download + apply + reboot immediately" with staged updates and a
+# reboot window (see docs/adr/0006-update-and-reboot-policy.md).
+systemctl mask bootc-fetch-apply-updates.timer
+systemctl enable \
+	bootc-factory-stage-update.timer \
+	bootc-factory-reboot-window.timer \
+	bootc-factory-enforce-sigpolicy.service \
+	bootc-factory-aide-reinit.service
+
+# --- Container signature policy fragments --------------------------------
+install -d -m 0755 "$share/policy.d"
+python3 -I - "$namespace" /etc/pki/containers/bootc-factory/*.pub >"$share/policy.d/10-bootc-factory.json" <<'EOF'
+import json, sys
+namespace, keys = sys.argv[1], sorted(sys.argv[2:])
+req = {"type": "sigstoreSigned", "signedIdentity": {"type": "matchRepository"}}
+if len(keys) == 1:
+    req["keyPath"] = keys[0]
+else:  # several keys during a rotation; any of them is accepted
+    req["keyPaths"] = keys
+json.dump({"docker": {namespace: [req]}}, sys.stdout, indent=2)
+print()
+EOF
+
+cat >/etc/containers/registries.d/bootc-factory.yaml <<EOF
+# Managed by bootc-factory: read cosign signatures stored next to the image.
+docker:
+  ${namespace}:
+    use-sigstore-attachments: true
+EOF
+
+# node_exporter is a logically bound image; it is pinned by digest, so we
+# allow it without a signature (upstream does not sign with a key we can
+# verify). See docs/adr/0004-logically-bound-images.md.
+cat >"$share/policy.d/20-node-exporter.json" <<'EOF'
+{"docker": {"quay.io/prometheus/node-exporter": [{"type": "insecureAcceptAnything"}]}}
+EOF

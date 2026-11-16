@@ -1,0 +1,5 @@
+# Keep editor/tool state out of image builds.
+**/.claude
+**/.git
+# Build outputs (image tarballs, reports) must never enter the build context.
+out/

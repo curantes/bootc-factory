@@ -1,0 +1,18 @@
+# Optional dedicated data disk, found by filesystem label. Without it, data
+# lives on the /var LV. Not ordered before local-fs.target, so a missing
+# disk only delays Prometheus, never the boot.
+[Unit]
+Description=Prometheus data disk (LABEL=prometheus-data)
+DefaultDependencies=no
+After=local-fs.target
+Conflicts=umount.target
+Before=umount.target
+
+[Mount]
+What=/dev/disk/by-label/prometheus-data
+Where=/var/lib/prometheus
+Type=xfs
+Options=nodev,nosuid,noexec
+
+[Install]
+WantedBy=multi-user.target

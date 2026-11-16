@@ -1,0 +1,81 @@
+# Retention: dated image tags after 90 days, disk-image releases after 8 weeks.
+# The moving tags (<version>, latest) are never touched. Weekly forced
+# rebuilds guarantee they always point at an image younger than 90 days.
+#
+# Runs in dry-run mode until the repository variable CLEANUP_DRY_RUN is set
+# to "false" (check the first logs before enabling).
+name: cleanup
+
+on:
+  schedule:
+    - cron: "31 4 * * 6"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      packages: ${{ steps.p.outputs.packages }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: p
+        run: echo "packages=$(scripts/plan.sh images | jq -c '["bootc-base"] + map("bootc-" + .)')" >>"$GITHUB_OUTPUT"
+
+  images:
+    needs: plan
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.packages) }}
+    permissions:
+      packages: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - name: Delete dated tags older than 90 days
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          package: ${{ matrix.package }}
+          # <ver>-<yyyymmdd>[.<run>][-<arch>]; never <ver> or latest
+          use-regex: true
+          delete-tags: '^\d+-\d{8}(\.\d+)?(-[a-z0-9]+)?$'
+          exclude-tags: '^(\d+|latest)$'
+          older-than: 90 days
+          delete-orphaned-images: true
+          delete-ghost-images: true
+          dry-run: ${{ vars.CLEANUP_DRY_RUN != 'false' }}
+          validate: true
+
+  releases:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - name: Delete disk-image releases older than 8 weeks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ vars.CLEANUP_DRY_RUN != 'false' }}
+        run: |
+          cutoff=$(date -u -d '8 weeks ago' +%s)
+          gh release list --repo "$REPO" --limit 500 --json tagName,createdAt |
+            jq -r --argjson c "$cutoff" '.[] | select(.tagName | startswith("disk-"))
+              | select((.createdAt | fromdateiso8601) < $c) | .tagName' |
+            while read -r tag; do
+              echo "delete $tag"
+              [[ $DRY_RUN == true ]] || gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag
+            done

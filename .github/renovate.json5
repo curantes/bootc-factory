@@ -1,0 +1,106 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:best-practices", // digest pinning for images, SHA pinning for actions
+    ":semanticCommits",
+    ":dependencyDashboard",
+    ":separateMultipleMajorReleases",
+  ],
+  timezone: "Europe/Stockholm",
+  labels: ["dependencies"],
+  // Renovate reads Dependabot alerts and opens [SECURITY] PRs immediately.
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: ["security"],
+    schedule: ["at any time"],
+  },
+  osvVulnerabilityAlerts: true,
+  nix: { enabled: true },
+  // Weekly flake.lock refresh (nixpkgs for the dev shell).
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 6am on monday"],
+  },
+  customManagers: [
+    {
+      // images/base/upstream.env and other `# renovate:` annotated KEY=ref lines
+      customType: "regex",
+      description: "Annotated image references in env files",
+      managerFilePatterns: ["/(^|/)[^/]+\\.env$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n[A-Z0-9_]+=\\S+?:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+    },
+    {
+      // Quadlet .container files (logically bound images)
+      customType: "regex",
+      description: "Quadlet Image= references",
+      managerFilePatterns: ["/\\.container$/"],
+      matchStrings: [
+        "Image=(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+      datasourceTemplate: "docker",
+    },
+    {
+      // Tool images in scripts/lib.sh
+      customType: "regex",
+      description: "Pinned tool images in shell scripts",
+      managerFilePatterns: ["/^scripts/lib\\.sh$/"],
+      matchStrings: [
+        "_IMAGE=(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+      datasourceTemplate: "docker",
+    },
+    {
+      // `# renovate:` annotated versions (bcvk, actionlint)
+      customType: "regex",
+      description: "Annotated tool versions",
+      managerFilePatterns: ["/^scripts/.+\\.sh$/", "/^\\.github/workflows/.+\\.ya?ml$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\S+?[=:] ?(?<currentValue>v?[0-9][^\\s]*)",
+      ],
+    },
+  ],
+  packageRules: [
+    {
+      description: "Local build references are not real dependencies",
+      matchPackageNames: ["localhost/**"],
+      enabled: false,
+    },
+    {
+      description: "Upstream AlmaLinux bootc: digest bumps only, never jump majors",
+      matchDepNames: ["quay.io/almalinuxorg/almalinux-bootc"],
+      matchUpdateTypes: ["major", "minor", "patch"],
+      enabled: false,
+    },
+    {
+      description: "Automerge digest pins/bumps and patches once every CI gate is green",
+      matchUpdateTypes: ["pin", "pinDigest", "digest", "patch"],
+      automerge: true,
+      automergeType: "pr",
+      platformAutomerge: true,
+    },
+    {
+      description: "Group the upstream base digests: one rebuild of everything",
+      matchDepNames: ["quay.io/almalinuxorg/almalinux-bootc"],
+      groupName: "almalinux bootc base",
+    },
+    {
+      description: "Group GitHub Actions digest updates",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["digest", "pinDigest", "patch", "minor"],
+      groupName: "github actions",
+    },
+    {
+      description: "cosign must stay on 2.x until podman/bootc read the cosign 3 signature format",
+      matchPackageNames: ["sigstore/cosign"],
+      allowedVersions: "<3",
+    },
+    {
+      description: "bcvk bumps need the matching SHA256 updated by hand",
+      matchDepNames: ["bootc-dev/bcvk"],
+      automerge: false,
+      prBodyNotes: ["Update `BCVK_SHA256_X86_64` in scripts/ci-setup.sh from the release's `.sha256` asset."],
+    },
+  ],
+}

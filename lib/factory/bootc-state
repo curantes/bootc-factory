@@ -1,0 +1,52 @@
+#!/usr/bin/python3
+"""Small, dependency-free queries over `bootc status --json` for the
+bootc-factory systemd units.
+
+  bootc-state staged          exit 0 if an update is staged for next boot
+  bootc-state booted-digest   print the booted image digest
+  bootc-state booted-image    print the booted image reference
+  bootc-state sigpolicy       print the booted signature mode
+                              (containerPolicy | insecure | ostreeRemote | none)
+"""
+
+import json
+import subprocess
+import sys
+
+
+def status():
+    out = subprocess.run(
+        ["bootc", "status", "--json"], check=True, capture_output=True, text=True
+    ).stdout
+    return json.loads(out).get("status") or {}
+
+
+def booted_image(st):
+    return ((st.get("booted") or {}).get("image") or {})
+
+
+def main(cmd):
+    st = status()
+    if cmd == "staged":
+        return 0 if st.get("staged") else 1
+    img = booted_image(st)
+    if cmd == "booted-digest":
+        print(img.get("imageDigest", ""))
+    elif cmd == "booted-image":
+        print((img.get("image") or {}).get("image", ""))
+    elif cmd == "sigpolicy":
+        sig = (img.get("image") or {}).get("signature")
+        if sig is None:
+            print("none")
+        elif isinstance(sig, str):
+            print(sig)
+        else:
+            print(next(iter(sig)))
+    else:
+        print(__doc__, file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else ""))

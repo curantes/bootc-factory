@@ -1,0 +1,3 @@
+# Keep editor/tool state out of image builds.
+**/.claude
+**/.git

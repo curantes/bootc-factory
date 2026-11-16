@@ -1,0 +1,43 @@
+# image-builder blueprint for the generic qcow2 (KVM/QEMU cloud) disk image.
+#
+# CIS requires separate /var, /var/log, /var/log/audit and /var/tmp.
+# /tmp and /dev/shm are tmpfs (configured in the image, not here); /home is
+# /var/home on bootc. ESP and /boot are added by image-builder.
+# Space beyond these minimums stays free in the VG: grow volumes with
+# `lvextend -r` as needed. cloud-init grows the PV when the disk is enlarged.
+
+[[customizations.disk.partitions]]
+type = "lvm"
+name = "vg_system"
+minsize = "24 GiB"
+
+[[customizations.disk.partitions.logical_volumes]]
+name = "lv_root"
+mountpoint = "/"
+label = "root"
+fs_type = "xfs"
+minsize = "12 GiB"
+
+[[customizations.disk.partitions.logical_volumes]]
+name = "lv_var"
+mountpoint = "/var"
+fs_type = "xfs"
+minsize = "4 GiB"
+
+[[customizations.disk.partitions.logical_volumes]]
+name = "lv_var_log"
+mountpoint = "/var/log"
+fs_type = "xfs"
+minsize = "2 GiB"
+
+[[customizations.disk.partitions.logical_volumes]]
+name = "lv_var_log_audit"
+mountpoint = "/var/log/audit"
+fs_type = "xfs"
+minsize = "2 GiB"
+
+[[customizations.disk.partitions.logical_volumes]]
+name = "lv_var_tmp"
+mountpoint = "/var/tmp"
+fs_type = "xfs"
+minsize = "1 GiB"

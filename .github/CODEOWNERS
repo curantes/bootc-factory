@@ -1,0 +1,10 @@
+# Code owners. Security-sensitive paths below need their review.
+*                                   @curantes
+
+# Security-sensitive: CIS exceptions, vulnerability exceptions, signing keys,
+# signature policy and the pipeline itself require a security review.
+**/cis-exceptions.txt               @curantes
+/security/                          @curantes
+/keys/                              @curantes
+/lib/factory/                       @curantes
+/.github/                           @curantes

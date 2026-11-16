@@ -1,0 +1,12 @@
+[Unit]
+Description=Enforce container signature verification for bootc updates
+ConditionPathExists=/run/ostree-booted
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/bootc-factory/enforce-sigpolicy
+
+[Install]
+WantedBy=multi-user.target

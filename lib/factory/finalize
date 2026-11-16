@@ -1,0 +1,70 @@
+#!/usr/bin/bash
+# Final build step of EVERY image (base and roles):
+#   1. render the container signature policy from policy.d fragments
+#   2. generate CIS tailoring from all cis-exceptions.d files
+#   3. (re-)apply CIS Level 2 Server hardening with oscap-im, so packages a
+#      role added cannot silently undo the base hardening
+#   4. clean up and lint
+set -euo pipefail
+
+lib=/usr/libexec/bootc-factory
+share=/usr/share/bootc-factory
+
+# shellcheck source=/dev/null
+. /etc/os-release
+major=${VERSION_ID%%.*}
+ds=/usr/share/xml/scap/ssg/content/ssg-almalinux${major}-ds.xml
+
+echo "==> Rendering /etc/containers/policy.json"
+python3 -I "$lib/render-policy.py" "$share/policy.d" /etc/containers/policy.json
+
+echo "==> Generating CIS tailoring files"
+# host: CIS minus accepted risks. Used to remediate (here) and to scan hosts.
+# gate: additionally skips deploy-time rules a container cannot evaluate (CI).
+python3 -I "$lib/gen-tailoring.py" --datastream "$ds" \
+	--exceptions-dir "$share/cis-exceptions.d" \
+	--kinds exception,deploy-time --name gate \
+	--out "$share/cis-gate-tailoring.xml"
+python3 -I "$lib/gen-tailoring.py" --datastream "$ds" \
+	--exceptions-dir "$share/cis-exceptions.d" \
+	--kinds exception --name host \
+	--out "$share/cis-host-tailoring.xml"
+
+echo "==> Applying CIS Level 2 Server hardening (oscap-im)"
+# Check for the tool, not the openscap version: EL9 ships oscap-im with
+# openscap 1.3.x.
+if ! command -v oscap-im >/dev/null; then
+	echo "ERROR: oscap-im not found (package openscap-utils)." >&2
+	exit 1
+fi
+oscap-im \
+	--profile xccdf_io.github.bootc-factory_profile_cis_host \
+	--tailoring-file "$share/cis-host-tailoring.xml" \
+	"$ds"
+
+echo "==> Removing kargs.d files written by SSG remediation"
+# SSG's bootc remediation for grub2_audit_argument and
+# grub2_audit_backlog_limit_argument quotes its glob ("$KARGS_DIR/*.toml"),
+# so it never sees existing kargs and appends on every run: the second
+# oscap-im run (any role) writes a duplicate TOML key and bootc lint fails.
+# Our 10-cis-audit.toml already sets both arguments.
+kargs=/usr/lib/bootc/kargs.d
+for arg in '"audit=1"' '"audit_backlog_limit='; do
+	if ! grep -qF "$arg" "$kargs/10-cis-audit.toml"; then
+		echo "ERROR: $kargs/10-cis-audit.toml must contain $arg" >&2
+		exit 1
+	fi
+done
+rm -f "$kargs/10-audit.toml" "$kargs/10-audit_backlog_limit.toml"
+
+echo "==> Cleaning up"
+dnf clean all
+# Keep /var/lib/aide (CIS aide_build_database); drop build-time state that
+# bootc would otherwise carry into every installed host's /var.
+rm -rf /var/cache/dnf /var/cache/ldconfig /var/lib/dnf \
+	/var/lib/authselect/backups /var/lib/aide/aide.db.new.gz \
+	/var/log/dnf* /var/log/hawkey.log /var/log/aide/* \
+	/var/tmp/* /tmp/* /run/dnf /run/cloud-init 2>/dev/null || true
+
+echo "==> bootc container lint"
+bootc container lint

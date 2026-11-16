@@ -1,0 +1,8 @@
+# Default Alertmanager configuration: accept alerts, notify nobody.
+# Replace via cloud-init with your receivers (they usually contain secrets,
+# so they never belong in the image).
+route:
+  receiver: "null"
+  group_by: [alertname, instance]
+receivers:
+  - name: "null"

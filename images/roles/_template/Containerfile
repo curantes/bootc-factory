@@ -1,0 +1,21 @@
+# Role: __ROLE__
+#
+# Build context is this directory. CI injects BASE_IMAGE as the digest of the
+# promoted base image (ghcr.io/curantes/bootc-base:<ver>@sha256:...).
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+LABEL org.opencontainers.image.title="bootc-__ROLE__" \
+      org.opencontainers.image.description="TODO" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      containers.bootc="1"
+
+COPY rootfs/ /
+COPY cis-exceptions.txt /usr/share/bootc-factory/cis-exceptions.d/50-__ROLE__.txt
+
+# Packages from the AlmaLinux repos only. Prefer Quadlet + logically bound
+# images for applications (see images/roles/prometheus).
+# RUN dnf -y install <packages>
+
+# Must be the last instruction: re-applies CIS hardening and lints.
+RUN /usr/libexec/bootc-factory/finalize

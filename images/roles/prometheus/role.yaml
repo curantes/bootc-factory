@@ -1,0 +1,6 @@
+# Role metadata, read by scripts/plan.sh.
+name: prometheus
+description: Prometheus server and Alertmanager (Quadlet, logically bound images)
+# Optional: build only a subset of factory.yaml `versions`.
+# versions: ["10"]
+boot_test: true

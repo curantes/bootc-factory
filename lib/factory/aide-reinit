@@ -1,0 +1,23 @@
+#!/usr/bin/bash
+# Re-initialise the AIDE database after the host boots a new image.
+#
+# /usr changes with every bootc update, so the database built at image
+# build time would report every updated file. The new image itself is
+# signature-verified, so we baseline it once per booted image digest.
+set -euo pipefail
+
+marker=/var/lib/bootc-factory/aide-baseline-digest
+digest=$(/usr/libexec/bootc-factory/bootc-state booted-digest)
+if [[ -z $digest ]]; then
+	echo "Booted image digest unknown; skipping." >&2
+	exit 0
+fi
+if [[ -r $marker && $(<"$marker") == "$digest" ]]; then
+	echo "AIDE baseline already matches $digest."
+	exit 0
+fi
+echo "New image $digest: rebuilding AIDE baseline."
+aide --init
+mv -f /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+install -d -m 0700 "$(dirname "$marker")"
+printf '%s\n' "$digest" >"$marker"

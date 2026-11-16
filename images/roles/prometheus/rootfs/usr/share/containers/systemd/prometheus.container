@@ -1,0 +1,32 @@
+# Prometheus server. Disabled until /etc/prometheus/web.yml exists
+# (delivered by cloud-init; see docs/examples/prometheus-user-data.yaml).
+[Unit]
+Description=Prometheus server
+ConditionPathExists=/etc/prometheus/web.yml
+Wants=network-online.target var-lib-prometheus.mount
+After=network-online.target var-lib-prometheus.mount
+
+[Container]
+ContainerName=prometheus
+Image=quay.io/prometheus/prometheus:v3.16.0@sha256:9332054523223e2ddc18d8101799d54a4a8d823b030c53216f063a6c117773cd
+GlobalArgs=--storage-opt=additionalimagestore=/usr/lib/bootc/storage
+Network=host
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+Volume=/etc/prometheus:/etc/prometheus:ro,z
+Volume=/usr/share/bootc-factory/prometheus/rules:/etc/prometheus-baseline:ro
+Volume=/var/lib/prometheus/data:/prometheus:Z
+Exec=--config.file=/etc/prometheus/prometheus.yml \
+     --web.config.file=/etc/prometheus/web.yml \
+     --web.listen-address=:9090 \
+     --storage.tsdb.path=/prometheus \
+     --storage.tsdb.retention.time=30d
+
+[Service]
+ExecStartPre=/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/bootc-prometheus.conf
+ExecReload=/usr/bin/podman kill --signal HUP prometheus
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

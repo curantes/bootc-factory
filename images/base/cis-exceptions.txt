@@ -1,0 +1,62 @@
+# CIS Level 2 Server exceptions for the base image.
+#
+# Format (one rule per line):   <kind>  <rule>  <reason>
+#
+#   kind  exception    Not compliant; accepted risk. Deselected everywhere
+#                      (remediation, CI gate and on-host scans).
+#         deploy-time  Still remediated at build time where possible, but only
+#                      verifiable on a booted host (disk layout, kernel
+#                      arguments, running services, live sysctl values).
+#                      Skipped by the CI gate; on-host scans check it.
+#   rule  Short SSG rule id (without xccdf_org.ssgproject.content_rule_).
+#         Ids missing from a version's datastream are ignored with a warning.
+#   reason  Mandatory free text.
+#
+# Every change to this file needs a CODEOWNERS security review.
+
+# --- Install-time disk layout (disk/qcow2.toml creates these) ---------------
+deploy-time  partition_for_var             /var is its own LV in disk/qcow2.toml
+deploy-time  partition_for_var_log         /var/log is its own LV in disk/qcow2.toml
+deploy-time  partition_for_var_log_audit   /var/log/audit is its own LV in disk/qcow2.toml
+deploy-time  partition_for_var_tmp         /var/tmp is its own LV in disk/qcow2.toml
+deploy-time  partition_for_tmp             /tmp is a tmpfs via tmp.mount at boot
+deploy-time  partition_for_dev_shm         /dev/shm is a kernel tmpfs at boot
+deploy-time  mount_option_tmp_nodev        tmp.mount drop-in sets nodev; only visible at boot
+deploy-time  mount_option_tmp_nosuid       tmp.mount drop-in sets nosuid; only visible at boot
+deploy-time  mount_option_tmp_noexec       tmp.mount drop-in sets noexec; only visible at boot
+deploy-time  mount_option_dev_shm_nodev    fstab option applied at boot; only visible at boot
+deploy-time  mount_option_dev_shm_nosuid   fstab option applied at boot; only visible at boot
+deploy-time  mount_option_dev_shm_noexec   fstab option applied at boot; only visible at boot
+deploy-time  grub2_audit_argument          set via /usr/lib/bootc/kargs.d, not /etc/default/grub
+deploy-time  grub2_audit_backlog_limit_argument  set via /usr/lib/bootc/kargs.d, not /etc/default/grub
+
+# --- Runtime state: no systemd/kernel to query inside a container build ----
+# oscap reports "error" for these in the build; the config is still written.
+deploy-time  service_auditd_enabled          enabled in base-setup; active state only exists at boot
+deploy-time  service_crond_enabled           enabled by remediation; active state only exists at boot
+deploy-time  service_firewalld_enabled       enabled in base-setup; active state only exists at boot
+deploy-time  service_systemd-journald_enabled  static unit; active state only exists at boot
+deploy-time  audit_rules_privileged_commands rules are generated from SUID/SGID binaries on the live system
+deploy-time  sysctl_net_ipv4_conf_all_forwarding                  sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_all_log_martians                sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_all_rp_filter                   sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_all_secure_redirects            sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_all_send_redirects              sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_default_accept_redirects        sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_default_forwarding              sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_default_log_martians            sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_default_rp_filter               sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_default_secure_redirects        sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_default_send_redirects          sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_ip_forward                           sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv6_conf_all_accept_ra                   sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv6_conf_all_accept_redirects            sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv6_conf_default_accept_ra               sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv6_conf_default_accept_redirects        sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_fs_suid_dumpable                              sysctl.d is written at build; the live value is the host kernel's
+
+# --- Accepted risk -----------------------------------------------------------
+exception    grub2_password                bootc manages the bootloader via bootupd; console access is controlled by the hypervisor/cloud platform (see docs/adr/0005)
+exception    ensure_root_password_configured  root is locked by design; admins come from cloud-init (wheel + sudo), recovery via the platform console
+exception    partition_for_home            /home is a symlink to /var/home on bootc, which is covered by the /var LV
+exception    kernel_module_overlayfs_disabled  composefs root filesystem and podman (bound images) require overlayfs (AlmaLinux 10 profile only)

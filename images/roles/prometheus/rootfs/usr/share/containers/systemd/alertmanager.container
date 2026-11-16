@@ -1,0 +1,31 @@
+# Alertmanager (single instance, clustering disabled). Disabled until
+# /etc/alertmanager/web.yml exists (delivered by cloud-init).
+[Unit]
+Description=Prometheus Alertmanager
+ConditionPathExists=/etc/alertmanager/web.yml
+Wants=network-online.target var-lib-prometheus.mount
+After=network-online.target var-lib-prometheus.mount
+
+[Container]
+ContainerName=alertmanager
+Image=quay.io/prometheus/alertmanager:v0.35.0@sha256:5f6e66c01bd610aef6dd671642a52eee775fd3a89bd8788ebada33efaf373d10
+GlobalArgs=--storage-opt=additionalimagestore=/usr/lib/bootc/storage
+Network=host
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+Volume=/etc/alertmanager:/etc/alertmanager:ro,z
+Volume=/var/lib/prometheus/alertmanager:/alertmanager:Z
+Exec=--config.file=/etc/alertmanager/alertmanager.yml \
+     --web.config.file=/etc/alertmanager/web.yml \
+     --web.listen-address=:9093 \
+     --storage.path=/alertmanager \
+     --cluster.listen-address=
+
+[Service]
+ExecStartPre=/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/bootc-prometheus.conf
+ExecReload=/usr/bin/podman kill --signal HUP alertmanager
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

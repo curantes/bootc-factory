@@ -1,0 +1,31 @@
+# Prometheus node_exporter. Disabled until /etc/node_exporter/web.yml exists
+# (delivered by cloud-init; see docs/examples/base-user-data.yaml).
+# Logically bound image: pulled by `bootc upgrade` before the new OS boots.
+[Unit]
+Description=Prometheus node_exporter
+ConditionPathExists=/etc/node_exporter/web.yml
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=node-exporter
+Image=quay.io/prometheus/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+GlobalArgs=--storage-opt=additionalimagestore=/usr/lib/bootc/storage
+Network=host
+PodmanArgs=--pid=host
+# Reading the host filesystem requires an unconfined SELinux label.
+SecurityLabelDisable=true
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+Volume=/:/host:ro,rslave
+Volume=/etc/node_exporter:/etc/node_exporter:ro
+# systemd collector (unit states) talks to the host over D-Bus.
+Volume=/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro
+Exec=--path.rootfs=/host --web.listen-address=:9100 --web.config.file=/etc/node_exporter/web.yml --collector.systemd
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

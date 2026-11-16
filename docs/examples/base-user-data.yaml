@@ -1,0 +1,42 @@
+#cloud-config
+# Example user-data for any bootc-factory image. Adjust and pass it via your
+# platform's cloud-init datasource (NoCloud seed, ConfigDrive, cloud metadata).
+hostname: vm1
+users:
+  - name: admin
+    groups: [wheel]
+    sudo: "ALL=(ALL) ALL"          # CIS: sudo requires a password
+    lock_passwd: false
+    hashed_passwd: "$6$REPLACE_ME"  # mkpasswd -m sha-512
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...REPLACE_ME admin@example
+
+# Optional: enable node_exporter (TLS + basic auth) for Prometheus scraping.
+write_files:
+  - path: /etc/node_exporter/web.yml
+    permissions: "0640"
+    owner: root:nobody
+    content: |
+      tls_server_config:
+        cert_file: /etc/node_exporter/tls/tls.crt
+        key_file: /etc/node_exporter/tls/tls.key
+      basic_auth_users:
+        prometheus: "$2y$10$REPLACE_ME"   # htpasswd -nbBC 10 "" '<password>' | tr -d ':\n'
+  - path: /etc/node_exporter/tls/tls.crt
+    permissions: "0644"
+    content: |
+      -----BEGIN CERTIFICATE-----
+      REPLACE_ME
+      -----END CERTIFICATE-----
+  - path: /etc/node_exporter/tls/tls.key
+    permissions: "0640"
+    owner: root:nobody
+    content: |
+      -----BEGIN PRIVATE KEY-----
+      REPLACE_ME
+      -----END PRIVATE KEY-----
+
+runcmd:
+  - [firewall-cmd, --permanent, --add-service=bootc-node-exporter]
+  - [firewall-cmd, --reload]
+  - [systemctl, start, node-exporter.service]

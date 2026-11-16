@@ -1,0 +1,6 @@
+{
+  "docker": {
+    "quay.io/prometheus/prometheus": [{"type": "insecureAcceptAnything"}],
+    "quay.io/prometheus/alertmanager": [{"type": "insecureAcceptAnything"}]
+  }
+}

@@ -1,0 +1,71 @@
+# Baseline node alerts, adapted from the upstream node-mixin
+# (https://github.com/prometheus/node_exporter/tree/master/docs/node-mixin).
+# Shipped read-only in the image; add or override in /etc/prometheus/rules/.
+groups:
+  - name: node
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "node_exporter on {{ $labels.instance }} is unreachable"
+
+      - alert: NodeFilesystemAlmostOutOfSpace
+        expr: |
+          (node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs"} * 100
+            / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs"} < 10)
+          and node_filesystem_readonly{job="node"} == 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.instance }} has less than 10% space left"
+
+      - alert: NodeFilesystemFillingUp
+        expr: |
+          (node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs"} * 100
+            / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs"} < 20)
+          and predict_linear(node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs"}[6h], 24*60*60) < 0
+          and node_filesystem_readonly{job="node"} == 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.instance }} will fill up within 24h"
+
+      - alert: NodeFilesystemAlmostOutOfFiles
+        expr: |
+          (node_filesystem_files_free{job="node",fstype!~"tmpfs|overlay|squashfs"} * 100
+            / node_filesystem_files{job="node",fstype!~"tmpfs|overlay|squashfs"} < 5)
+          and node_filesystem_readonly{job="node"} == 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.instance }} has less than 5% inodes left"
+
+      - alert: NodeMemoryHighUtilization
+        expr: 100 - (node_memory_MemAvailable_bytes{job="node"} * 100 / node_memory_MemTotal_bytes{job="node"}) > 90
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Memory on {{ $labels.instance }} is more than 90% used"
+
+      - alert: NodeCPUHighUsage
+        expr: sum without(mode) (avg without (cpu) (rate(node_cpu_seconds_total{job="node",mode!~"idle|iowait"}[2m]))) * 100 > 90
+        for: 15m
+        labels: {severity: info}
+        annotations:
+          summary: "CPU on {{ $labels.instance }} is more than 90% busy"
+
+      - alert: NodeClockNotSynchronising
+        expr: min_over_time(node_timex_sync_status{job="node"}[5m]) == 0 and node_timex_maxerror_seconds{job="node"} >= 16
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Clock on {{ $labels.instance }} is not synchronising"
+
+      - alert: NodeSystemdServiceFailed
+        expr: node_systemd_unit_state{job="node",state="failed"} == 1
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.name }} failed on {{ $labels.instance }}"

@@ -1,0 +1,279 @@
+# Reusable workflow: build, gate, publish, sign and attest ONE image
+# (base or a role) for every version x arch in its matrix.
+#
+# All builds and provenance happen inside this reusable workflow, so the
+# GitHub attestations name it as the builder (SLSA v1.0 Build L3 on
+# GitHub-hosted runners). See docs/adr/0003-supply-chain.md.
+name: image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "base or a role name"
+        type: string
+        required: true
+      publish:
+        description: "Push, sign, attest and promote tags"
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      versions: ${{ steps.m.outputs.versions }}
+      latest: ${{ steps.m.outputs.latest }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: m
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          {
+            echo "matrix=$(scripts/plan.sh matrix "$IMAGE")"
+            echo "versions=$(scripts/plan.sh versions "$IMAGE")"
+            echo "latest=$(yq '.latest' factory.yaml)"
+          } >>"$GITHUB_OUTPUT"
+
+  build:
+    needs: matrix
+    name: build ${{ inputs.image }} ${{ matrix.version }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    env:
+      IMAGE: ${{ inputs.image }}
+      VERSION: ${{ matrix.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up runner
+        env:
+          BOOT_TEST: ${{ matrix.boot_test }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          echo "IMAGE_NAMESPACE=ghcr.io/${OWNER,,}" >>"$GITHUB_ENV"
+          features=()
+          [[ $BOOT_TEST == true ]] && features+=(boot-test)
+          scripts/ci-setup.sh "${features[@]}"
+          # Free disk space: bootc images are large.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Log in to GHCR (packages may still be private)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$GH_TOKEN" | sudo podman login ghcr.io -u "$ACTOR" --password-stdin
+          echo "$GH_TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Resolve base image digest
+        if: inputs.image != 'base'
+        run: |
+          ref="$IMAGE_NAMESPACE/bootc-base:$VERSION"
+          digest=$(skopeo inspect --raw "docker://$ref" | sha256sum | cut -d' ' -f1)
+          echo "BASE_IMAGE=$ref@sha256:$digest" >>"$GITHUB_ENV"
+          echo "Building on $ref@sha256:$digest"
+
+      - name: Build and rechunk
+        run: scripts/build.sh "$IMAGE" "$VERSION"
+
+      - name: SBOM
+        run: scripts/sbom.sh "$IMAGE" "$VERSION"
+
+      - name: Vulnerability gate (Trivy)
+        id: trivy
+        run: scripts/scan.sh "$IMAGE" "$VERSION"
+
+      - name: Upload Trivy results to code scanning
+        if: always() && hashFiles(format('out/{0}-{1}-{2}/trivy.sarif', inputs.image, matrix.version, matrix.arch)) != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: out/${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}/trivy.sarif
+          category: trivy-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+
+      - name: CIS compliance gate (OpenSCAP)
+        run: scripts/oscap-gate.sh "$IMAGE" "$VERSION"
+
+      - name: Boot test (ephemeral VM)
+        if: matrix.boot_test
+        run: scripts/boot-test.sh "$IMAGE" "$VERSION"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+          path: |
+            out/${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}/*
+            !out/${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}/image.*
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # ---- publish (main only; every gate above has passed) -------------
+      - name: Push per-arch image
+        if: inputs.publish
+        id: push
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          build_tag="$VERSION-$(date -u +%Y%m%d).$RUN_NUMBER-$ARCH"
+          repo="$IMAGE_NAMESPACE/bootc-$IMAGE"
+          sudo podman push --digestfile "$RUNNER_TEMP/digest" \
+            "localhost/bootc-$IMAGE:$VERSION" "docker://$repo:$build_tag"
+          digest=$(<"$RUNNER_TEMP/digest")
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          echo "repo=$repo" >>"$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/publish"
+          echo "$digest" >"$RUNNER_TEMP/publish/$ARCH"
+          cp "out/$IMAGE-$VERSION-$ARCH/sbom.spdx.json" "$RUNNER_TEMP/publish/$ARCH.spdx.json"
+
+      - name: Attest build provenance (per-arch)
+        if: inputs.publish
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.repo }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest SBOM (per-arch)
+        if: inputs.publish
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.repo }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: out/${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}/sbom.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Hand digest and SBOM to the publish job
+        if: inputs.publish
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: publish-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/publish/
+          retention-days: 1
+
+  publish:
+    needs: [matrix, build]
+    if: inputs.publish
+    name: publish ${{ inputs.image }} ${{ matrix.version }}
+    runs-on: ubuntu-24.04
+    # Holds COSIGN_PRIVATE_KEY / COSIGN_PASSWORD; deployable from main only.
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.matrix.outputs.versions) }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ${{ inputs.image }}
+      VERSION: ${{ matrix.version }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          # cosign 3.x stores signatures where podman/bootc do not look yet.
+          cosign-release: v2.6.5
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: publish-${{ inputs.image }}-${{ matrix.version }}-*
+          path: ${{ runner.temp }}/publish
+          merge-multiple: true
+
+      - name: Create index, sign, attest SBOMs, promote tags
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          RUN_NUMBER: ${{ github.run_number }}
+          LATEST_VERSION: ${{ needs.matrix.outputs.latest }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          IMAGE_NAMESPACE="ghcr.io/${OWNER,,}"
+          BUILD_TAG="$(date -u +%Y%m%d).$RUN_NUMBER"
+          LATEST=false
+          [[ $VERSION == "$LATEST_VERSION" ]] && LATEST=true
+          export IMAGE_NAMESPACE BUILD_TAG LATEST
+          digests="$RUNNER_TEMP/digests"; sboms="$RUNNER_TEMP/sboms"
+          mkdir -p "$digests" "$sboms"
+          for f in "$RUNNER_TEMP"/publish/*; do
+            case $f in
+              *.spdx.json) mv "$f" "$sboms/" ;;
+              *) mv "$f" "$digests/" ;;
+            esac
+          done
+          echo "$GH_TOKEN" | podman login ghcr.io -u "$ACTOR" --password-stdin
+          echo "$GH_TOKEN" | cosign login ghcr.io -u "$ACTOR" --password-stdin
+          SBOM_DIR="$sboms" scripts/publish.sh "$IMAGE" "$VERSION" "$digests"
+          echo "repo=$IMAGE_NAMESPACE/bootc-$IMAGE" >>"$GITHUB_OUTPUT"
+
+      - name: Attest build provenance (index)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.publish.outputs.repo }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Verify what we just published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ steps.publish.outputs.repo }}@${{ steps.publish.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          cosign verify --key keys/cosign.pub "$REF" >/dev/null
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/_image\.yml@refs/heads/main$" \
+            "$REF" >/dev/null
+          gh attestation verify "oci://$REF" --repo "$REPO" \
+            --signer-workflow "$REPO/.github/workflows/_image.yml"
+          echo "Signatures and provenance verified for $REF"
+      - name: Summary
+        env:
+          REF: ${{ steps.publish.outputs.repo }}:${{ matrix.version }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          {
+            echo "### Published \`$REF\`"
+            echo
+            echo "Digest: \`$DIGEST\`"
+          } >>"$GITHUB_STEP_SUMMARY"

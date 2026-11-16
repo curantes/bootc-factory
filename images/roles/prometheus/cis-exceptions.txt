@@ -1,0 +1,3 @@
+# CIS exceptions specific to the prometheus role. Same format as
+# images/base/cis-exceptions.txt. Keep empty unless strictly necessary;
+# every entry needs a CODEOWNERS security review.
