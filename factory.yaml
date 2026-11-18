@@ -2,9 +2,11 @@
 # A role may narrow `versions` in its own role.yaml, but never widen it.
 #
 # Images are published as ghcr.io/<github owner>/bootc-<name>.
-versions: ["9", "10"]
+# Only AlmaLinux 10 for now; add "9" back to build EL9 images again.
+versions: ["10"]
 # Major version that also receives the `latest` tag.
 latest: "10"
-arches: [amd64, arm64]
+# amd64 only for now; add arm64 back for aarch64 images (no boot test there).
+arches: [amd64]
 # Ephemeral-VM boot tests need KVM; GitHub's arm64 runners do not expose it.
 boot_test_arches: [amd64]

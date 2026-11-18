@@ -4,7 +4,7 @@ A factory for CIS Level 2 hardened [bootc](https://bootc.dev) images based on
 [AlmaLinux bootc](https://github.com/AlmaLinux/bootc-images), with a hardened
 **base** and **roles** that build on it.
 
-- **Base**: AlmaLinux 9 and 10 (x86_64 and aarch64), CIS Level 2 Server via
+- **Base**: AlmaLinux 10 (x86_64), CIS Level 2 Server via
   `oscap-im`, signature-enforcing `policy.json`, cloud-init, staged updates
   with a reboot window, and node_exporter (off until it's configured).
 - **Roles**: `images/roles/<name>/`, built `FROM` the exact base digest and
