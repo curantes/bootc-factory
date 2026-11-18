@@ -105,7 +105,9 @@ jobs:
               pull_request) range="$PR_BASE...HEAD" ;;
               push)
                 if [[ $BEFORE =~ ^0+$ ]] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
-                  range="HEAD~1..HEAD"
+                  # A root commit has no parent: diff against the empty tree.
+                  parent=$(git rev-parse -q --verify HEAD~1 || git hash-object -t tree /dev/null)
+                  range="$parent..HEAD"
                 else
                   range="$BEFORE..HEAD"
                 fi ;;

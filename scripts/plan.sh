@@ -64,7 +64,8 @@ changed() {
 	if [[ $base == true ]]; then
 		jq -nc --argjson roles "$(roles)" '{base: true, roles: $roles}'
 	else
-		printf '%s\n' "${touched[@]}" | sort -u | grep -v '^$' |
+		# grep exits 1 when no role was touched; that is not an error.
+		printf '%s\n' "${touched[@]}" | sort -u | { grep -v '^$' || true; } |
 			while read -r r; do [[ -f images/roles/$r/role.yaml ]] && echo "$r"; done |
 			jq -Rnc '{base: false, roles: [inputs]}'
 	fi
