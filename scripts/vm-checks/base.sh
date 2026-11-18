@@ -19,7 +19,17 @@ if [[ -n $failed ]]; then
 fi
 
 check "SELinux enforcing"
-[[ $(getenforce) == Enforcing ]] || fail "SELinux is $(getenforce)"
+if grep -qw 'selinux=0' /proc/cmdline; then
+	# bcvk ephemeral VMs always boot with selinux=0 (virtiofs root cannot
+	# carry labels, bootc-dev/bcvk#22). Check what the image controls; the
+	# live mode is only verifiable on a real deployment.
+	echo "note: booted with selinux=0 (bcvk); checking the image's SELinux config instead"
+	grep -qx 'SELINUX=enforcing' /etc/selinux/config || fail "/etc/selinux/config does not set SELINUX=enforcing"
+	policy=$(sed -n 's/^SELINUXTYPE=//p' /etc/selinux/config)
+	[[ -n $policy && -d /etc/selinux/$policy/policy ]] || fail "SELinux policy '$policy' is not installed"
+else
+	[[ $(getenforce) == Enforcing ]] || fail "SELinux is $(getenforce)"
+fi
 
 check "core services active"
 for u in sshd firewalld auditd; do
