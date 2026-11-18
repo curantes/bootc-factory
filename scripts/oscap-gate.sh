@@ -33,6 +33,8 @@ log "OpenSCAP evaluation of $ref"
 	rc=$?
 	# 0 = all pass, 2 = some rule failed (judged below), else = tool error
 	if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then tail -50 /out/oscap.log >&2; exit "$rc"; fi
-	tar -C /out -cf - .' | tar -xUf - -C "$out"
+	# Archive the files, not ".": extracting a "." entry over an existing
+	# directory fails with newer GNU tar ("Cannot unlink: Invalid argument").
+	cd /out && tar -cf - -- *' | tar -xf - -C "$out"
 
 python3 -I "$REPO_ROOT/scripts/oscap-summary.py" "$out/oscap-results.xml" "$name $ver $ARCH"
