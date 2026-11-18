@@ -39,7 +39,7 @@ matrix() {
 			$versions[] as $v | $arches[] as $a | {
 				version: $v,
 				arch: $a,
-				runner: (if $a == "arm64" then "ubuntu-24.04-arm" else "ubuntu-24.04" end),
+				runner: (if $a == "arm64" then "ubuntu-26.04-arm" else "ubuntu-26.04" end),
 				boot_test: ($boot and ($boot_arches | index($a) != null))
 			}
 		]}'
