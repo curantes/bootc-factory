@@ -89,7 +89,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | sudo podman login ghcr.io -u "$ACTOR" --password-stdin
+          echo "$GH_TOKEN" | sudo env -u XDG_RUNTIME_DIR podman login ghcr.io -u "$ACTOR" --password-stdin
           echo "$GH_TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
 
       - name: Resolve base image digest
@@ -144,7 +144,7 @@ jobs:
         run: |
           build_tag="$VERSION-$(date -u +%Y%m%d).$RUN_NUMBER-$ARCH"
           repo="$IMAGE_NAMESPACE/bootc-$IMAGE"
-          sudo podman push --digestfile "$RUNNER_TEMP/digest" \
+          sudo env -u XDG_RUNTIME_DIR podman push --digestfile "$RUNNER_TEMP/digest" \
             "localhost/bootc-$IMAGE:$VERSION" "docker://$repo:$build_tag"
           digest=$(<"$RUNNER_TEMP/digest")
           echo "digest=$digest" >>"$GITHUB_OUTPUT"

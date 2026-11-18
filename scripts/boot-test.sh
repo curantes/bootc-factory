@@ -33,7 +33,7 @@ RUN
 log "Booting $ref"
 # bcvk drives podman; run it as the same user that owns the image storage.
 sudo_bcvk=()
-[[ ${PODMAN[0]} == sudo ]] && sudo_bcvk=(sudo --preserve-env=PATH)
+[[ ${PODMAN[0]} == sudo ]] && sudo_bcvk=(sudo --preserve-env=PATH env -u XDG_RUNTIME_DIR)
 timeout 25m "${sudo_bcvk[@]}" bcvk ephemeral run --rm --memory 4G --vcpus 2 \
 	--ro-bind "$tests:tests" \
 	--execute "/usr/bin/bash /run/virtiofs-mnt-tests/run.sh" \

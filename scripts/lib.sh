@@ -6,7 +6,10 @@ REPO_ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 
 # Builds, rechunking and boot tests need rootful podman (as upstream does).
-read -r -a PODMAN <<<"${PODMAN:-sudo podman}"
+# sudo-rs (Ubuntu 26.04) keeps the caller's XDG_RUNTIME_DIR, so root podman
+# would use the caller's /run/user/<uid>/containers/auth.json and leave it
+# root-owned. Drop it so root uses /run/containers/0/auth.json.
+read -r -a PODMAN <<<"${PODMAN:-sudo env -u XDG_RUNTIME_DIR podman}"
 # Registry namespace baked into the signature policy, e.g. ghcr.io/owner.
 IMAGE_NAMESPACE=${IMAGE_NAMESPACE:-localhost}
 ARCH=${ARCH:-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')}

@@ -85,7 +85,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | sudo podman login ghcr.io -u "$ACTOR" --password-stdin
+          echo "$GH_TOKEN" | sudo env -u XDG_RUNTIME_DIR podman login ghcr.io -u "$ACTOR" --password-stdin
           echo "$GH_TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
           echo "$GH_TOKEN" | cosign login ghcr.io -u "$ACTOR" --password-stdin
           repo="ghcr.io/${OWNER,,}/bootc-$IMAGE"

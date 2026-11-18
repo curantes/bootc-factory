@@ -6,7 +6,7 @@
 #
 # Env: IMAGE_NAMESPACE  registry namespace for the signature policy (base)
 #      BASE_IMAGE       base image for roles (default: local base build)
-#      PODMAN           podman command (default: "sudo podman")
+#      PODMAN           podman command (default: root podman via sudo)
 # shellcheck source=lib.sh
 source "$(dirname "$0")/lib.sh"
 
