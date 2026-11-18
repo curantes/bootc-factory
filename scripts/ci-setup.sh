@@ -7,9 +7,12 @@
 source "$(dirname "$0")/lib.sh"
 
 # Update the SHA256 together with the version (from the release's .sha256 asset).
+# Held at v0.19.0: v0.21.0+ bind-mounts /run into /run/tmproot in its
+# entrypoint (bcvk PR #395, tested rootless only), which fails with rootful
+# podman on Ubuntu 26.04 runners ("mount: /run/tmproot/run: bind /run failed").
 # renovate: datasource=github-releases depName=bootc-dev/bcvk
-BCVK_VERSION=v0.22.0
-BCVK_SHA256_X86_64=eb72198c0d36fab75bfcadbb6794a87afa6f496a4da6b1b34d27728243fa6474
+BCVK_VERSION=v0.19.0
+BCVK_SHA256_X86_64=e6e3e2e8c13546d30481b035217442de78f2efe3e5a3bd3dbfb58d38345b4b98
 
 pkgs=()
 for want in "$@"; do

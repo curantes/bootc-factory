@@ -102,5 +102,10 @@
       automerge: false,
       prBodyNotes: ["Update `BCVK_SHA256_X86_64` in scripts/ci-setup.sh from the release's `.sha256` asset."],
     },
+    {
+      description: "bcvk 0.21+ fails rootful ephemeral boots on Ubuntu 26.04 (bind /run into /run/tmproot); lift once fixed upstream",
+      matchDepNames: ["bootc-dev/bcvk"],
+      allowedVersions: "<0.21.0",
+    },
   ],
 }
