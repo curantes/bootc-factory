@@ -43,6 +43,7 @@ deploy-time  sysctl_net_ipv4_conf_all_rp_filter                   sysctl.d is wr
 deploy-time  sysctl_net_ipv4_conf_all_secure_redirects            sysctl.d is written at build; the live value is the host kernel's
 deploy-time  sysctl_net_ipv4_conf_all_send_redirects              sysctl.d is written at build; the live value is the host kernel's
 deploy-time  sysctl_net_ipv4_conf_default_accept_redirects        sysctl.d is written at build; the live value is the host kernel's
+deploy-time  sysctl_net_ipv4_conf_default_accept_source_route     systemd's 50-default.conf sets 0; the live value is the host kernel's (CI runners report 1)
 deploy-time  sysctl_net_ipv4_conf_default_forwarding              sysctl.d is written at build; the live value is the host kernel's
 deploy-time  sysctl_net_ipv4_conf_default_log_martians            sysctl.d is written at build; the live value is the host kernel's
 deploy-time  sysctl_net_ipv4_conf_default_rp_filter               sysctl.d is written at build; the live value is the host kernel's
