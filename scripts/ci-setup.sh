@@ -7,9 +7,11 @@
 source "$(dirname "$0")/lib.sh"
 
 # Update the SHA256 together with the version (from the release's .sha256 asset).
-# Held at v0.19.0: v0.21.0+ bind-mounts /run into /run/tmproot in its
-# entrypoint (bcvk PR #395, tested rootless only), which fails with rootful
-# podman on Ubuntu 26.04 runners ("mount: /run/tmproot/run: bind /run failed").
+# Held at v0.19.0, together with the AppArmor workaround below: v0.21.0+
+# bind-mounts /run into /run/tmproot in its entrypoint (bcvk PR #395, tested
+# rootless only), which failed with rootful podman on Ubuntu 26.04 runners
+# ("mount: /run/tmproot/run: bind /run failed"). Retry v0.21.0+ once the
+# workaround is proven, and lift the hold in .github/renovate.json5.
 # renovate: datasource=github-releases depName=bootc-dev/bcvk
 BCVK_VERSION=v0.19.0
 BCVK_SHA256_X86_64=e6e3e2e8c13546d30481b035217442de78f2efe3e5a3bd3dbfb58d38345b4b98
@@ -33,6 +35,19 @@ if [[ " $* " == *" boot-test "* ]]; then
 		sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
 	sudo udevadm control --reload-rules
 	sudo udevadm trigger --name-match=kvm
+
+	# Ubuntu's AppArmor profile for bwrap also confines the bwrap inside
+	# bcvk's container and denies its mounts ("bwrap: Failed to make /
+	# slave: Permission denied"). Same workaround as bcvk's own CI
+	# (bootc-dev/actions bootc-host-setup/ci/workarounds.sh). Runner only.
+	if sudo test -r /etc/apparmor.d/bwrap-userns-restrict &&
+		sudo grep -qx 'bwrap (enforce)' /sys/kernel/security/apparmor/profiles; then
+		printf '%s\n' 'priority=100 allow file rwlkm /**,' 'priority=100 allow ix /**,' |
+			sudo tee /etc/apparmor.d/local/bwrap-userns-restrict >/dev/null
+		sudo apparmor_parser -Q /etc/apparmor.d/bwrap-userns-restrict
+		sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+		echo "Relaxed AppArmor bwrap-userns-restrict for bcvk"
+	fi
 
 	tmp=$(mktemp -d)
 	curl -fsSL -o "$tmp/bcvk.tar.gz" \
