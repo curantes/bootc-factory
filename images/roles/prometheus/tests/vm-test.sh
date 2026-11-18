@@ -20,7 +20,7 @@ done
 # An ephemeral VM is not a bootc install, so the bound-image store the
 # Quadlets reference may not exist; create it so podman falls back to pulling.
 store=$(readlink -f /usr/lib/bootc/storage || true)
-[[ -n $store && ! -e $store ]] && mkdir -p "$store" 2>/dev/null || true
+if [[ -n $store && ! -e $store ]]; then mkdir -p "$store" 2>/dev/null || true; fi
 
 systemctl daemon-reload
 systemctl start prometheus.service alertmanager.service
