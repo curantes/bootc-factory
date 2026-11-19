@@ -44,7 +44,7 @@ just new-role grafana       # scaffold the next role
 ## Use
 
 ```sh
-cosign verify --key keys/cosign.pub ghcr.io/curantes/bootc-prometheus:10
+cosign verify --new-bundle-format=false --key keys/cosign.pub ghcr.io/curantes/bootc-prometheus:10
 bootc switch --enforce-container-sigpolicy ghcr.io/curantes/bootc-prometheus:10
 ```
 

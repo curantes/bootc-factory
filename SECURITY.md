@@ -18,7 +18,7 @@ Every published image is signed with the repository's cosign key
 CI, and carries SLSA build provenance and an SPDX SBOM:
 
 ```sh
-cosign verify --key keys/cosign.pub ghcr.io/curantes/bootc-base:10
+cosign verify --new-bundle-format=false --key keys/cosign.pub ghcr.io/curantes/bootc-base:10
 gh attestation verify oci://ghcr.io/curantes/bootc-base:10 --repo curantes/bootc-factory
 ```
 
