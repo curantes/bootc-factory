@@ -87,4 +87,14 @@ printf '%s\n' \
 log "Linting $ref"
 "${PODMAN[@]}" run --rm "$ref" bootc container lint
 
+# Rechunking rewrites the image. A damaged RPM database still lists every
+# package, but dependency lookups fail, breaking dnf here and in every image
+# built on top (seen by AlmaLinux after a rechunk). Check both databases.
+log "Checking the RPM database of $ref"
+# shellcheck disable=SC2016 # expanded inside the container
+"${PODMAN[@]}" run --rm --network=none --entrypoint /usr/bin/bash "$ref" -euc '
+	rpmdb --verifydb
+	base_db=/usr/lib/sysimage/rpm-ostree-base-db
+	if [[ -d $base_db ]]; then rpmdb --verifydb --dbpath "$base_db"; fi' ||
+	die "RPM database of $ref is damaged"
 log "Built $ref"
