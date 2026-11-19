@@ -10,7 +10,8 @@ A factory for CIS Level 2 hardened [bootc](https://bootc.dev) images based on
 - **Roles**: `images/roles/<name>/`, built `FROM` the exact base digest and
   re-hardened at the end of every build. The first role is
   [`prometheus`](images/roles/prometheus) (Prometheus + Alertmanager).
-- **Supply chain**: images are pinned by digest and kept current by Renovate.
+- **Supply chain**: images are pinned by digest and kept current by Renovate;
+  the upstream AlmaLinux image must also carry a valid AlmaLinux signature.
   CI runs Trivy and OpenSCAP gates and a boot test in a VM, then publishes a
   Syft SBOM, a keyed and keyless cosign signature, and GitHub build
   provenance (SLSA Build L3).

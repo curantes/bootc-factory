@@ -20,7 +20,10 @@ The base build also runs `dnf upgrade` so errata land before upstream rebuilds.
 
 - Fast, simple builds that reuse AlmaLinux's tested compose.
 - We trust AlmaLinux's build. Upstream is signed with their KMS cosign key
-  (`cosign.pub` in their repo) but ships no SBOM/provenance; our SBOM covers
-  the full final image.
+  (`cosign.pub` in their repo, kept as `images/base/almalinux-bootc.pub`);
+  `scripts/build.sh` pulls the pinned digest only if that signature verifies
+  (added 2026-11-19), so a Renovate digest bump can't swap in an image they
+  didn't sign. Upstream ships no SBOM/provenance; our SBOM covers the full
+  final image.
 - Switching to a from-scratch build later only changes the base
   `Containerfile`; roles are unaffected.

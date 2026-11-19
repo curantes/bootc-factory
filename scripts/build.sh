@@ -30,19 +30,27 @@ if [[ -n ${GITHUB_SERVER_URL:-} ]]; then
 fi
 
 if [[ $name == base ]]; then
+	upstream=$(upstream_image "$ver")
+	pull_verified_upstream "$upstream"
+	# Build only from the verified copy, never pull the upstream again. It is
+	# stored as repo@digest; the pinned tag is only there for Renovate.
+	pull=never
+	repo=${upstream%%@*}
+	upstream="${repo%:*}@${upstream#*@}"
 	args=(
-		--build-arg "UPSTREAM_IMAGE=$(upstream_image "$ver")"
+		--build-arg "UPSTREAM_IMAGE=$upstream"
 		--build-arg "IMAGE_NAMESPACE=$IMAGE_NAMESPACE"
 		-f images/base/Containerfile .
 	)
 else
+	pull=missing
 	base=${BASE_IMAGE:-$(local_ref base "$ver")}
 	labels+=(--label "io.github.bootc-factory.base=$base")
 	args=(--build-arg "BASE_IMAGE=$base" -f "images/roles/$name/Containerfile" "images/roles/$name")
 fi
 
 log "Building $raw"
-"${PODMAN[@]}" build --pull=missing "${labels[@]}" -t "$raw" "${args[@]}"
+"${PODMAN[@]}" build --pull="$pull" "${labels[@]}" -t "$raw" "${args[@]}"
 
 chunked="$ref-chunked"
 log "Rechunking into $chunked"
@@ -78,4 +86,5 @@ printf '%s\n' \
 
 log "Linting $ref"
 "${PODMAN[@]}" run --rm "$ref" bootc container lint
+
 log "Built $ref"

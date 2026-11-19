@@ -54,6 +54,38 @@ upstream_image() {
 	echo "$v"
 }
 
+# Copy an upstream base image into root's container storage, but only if
+# AlmaLinux's cosign signature verifies. This uses the same containers/image
+# policy code as bootc and podman, so it also catches signatures stored where
+# they don't look. Key: images/base/almalinux-bootc.pub, published in
+# github.com/AlmaLinux/bootc-images (cosign.pub) and AlmaLinux/atomic-desktop.
+pull_verified_upstream() {
+	local ref=$1 repo dir
+	repo=${ref%%@*}
+	repo=${repo%:*}
+	dir=$(mktemp -d)
+	cat >"$dir/policy.json" <<-EOF
+		{
+		  "default": [{"type": "reject"}],
+		  "transports": {"docker": {"$repo": [{
+		    "type": "sigstoreSigned",
+		    "keyPath": "$REPO_ROOT/images/base/almalinux-bootc.pub",
+		    "signedIdentity": {"type": "matchRepository"}
+		  }]}}
+		}
+	EOF
+	mkdir "$dir/registries.d"
+	printf 'docker:\n  %s:\n    use-sigstore-attachments: true\n' "$repo" >"$dir/registries.d/upstream.yaml"
+	log "Pulling $ref (signature verified with images/base/almalinux-bootc.pub)"
+	# Same privileges as PODMAN (sudo for root storage), with skopeo instead.
+	# Absolute path: sudo's secure_path misses e.g. a Nix-provided skopeo.
+	"${PODMAN[@]:0:${#PODMAN[@]}-1}" "$(command -v skopeo)" copy --quiet \
+		--policy "$dir/policy.json" --registries.d "$dir/registries.d" \
+		"docker://$repo@${ref#*@}" "containers-storage:$repo@${ref#*@}" ||
+		die "upstream image $ref is missing a valid AlmaLinux signature"
+	rm -rf "$dir"
+}
+
 image_dir() {
 	if [[ $1 == base ]]; then echo images/base; else echo "images/roles/$1"; fi
 }
