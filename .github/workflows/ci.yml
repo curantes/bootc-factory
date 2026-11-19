@@ -131,6 +131,10 @@ jobs:
       attestations: write
       security-events: write
     uses: ./.github/workflows/_image.yml
+    # The cosign key lives only in the `release` environment (main only);
+    # a called workflow doesn't see environment secrets unless the caller
+    # passes secrets on. There are no repository-level secrets to leak.
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       image: base
       publish: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
@@ -155,6 +159,10 @@ jobs:
       attestations: write
       security-events: write
     uses: ./.github/workflows/_image.yml
+    # The cosign key lives only in the `release` environment (main only);
+    # a called workflow doesn't see environment secrets unless the caller
+    # passes secrets on. There are no repository-level secrets to leak.
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       image: ${{ matrix.role }}
       publish: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
