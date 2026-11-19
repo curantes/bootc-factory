@@ -91,6 +91,10 @@ jobs:
         run: |
           echo "$GH_TOKEN" | sudo env -u XDG_RUNTIME_DIR podman login ghcr.io -u "$ACTOR" --password-stdin
           echo "$GH_TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
+          # actions/attest (push-to-registry) only reads ~/.docker/config.json.
+          mkdir -p ~/.docker
+          echo "$GH_TOKEN" | podman login ghcr.io -u "$ACTOR" --password-stdin \
+            --compat-auth-file ~/.docker/config.json
 
       - name: Resolve base image digest
         if: inputs.image != 'base'
