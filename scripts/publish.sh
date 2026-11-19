@@ -42,6 +42,17 @@ cosign sign --yes --recursive --key env://COSIGN_PRIVATE_KEY "$repo@$index"
 log "Signing (keyless; GitHub OIDC identity for CI-side verification)"
 cosign sign --yes --recursive "$repo@$index"
 
+# bootc and podman only read signatures from the sha256-<digest>.sig tag.
+# cosign verify also accepts newer storage formats (cosign 3.x defaults),
+# so check the tag itself before any public tag points at this index.
+mapfile -t children < <(cat "$digests"/*)
+for digest in "$index" "${children[@]}"; do
+	sig="$repo:${digest/:/-}.sig"
+	skopeo inspect --raw "docker://$sig" >/dev/null ||
+		die "no signature at $sig: bootc/podman clients would reject $repo@$digest"
+done
+log "Signatures stored where bootc/podman look for them"
+
 if [[ -n ${SBOM_DIR:-} ]]; then
 	for f in "$digests"/*; do
 		arch=$(basename "$f")
