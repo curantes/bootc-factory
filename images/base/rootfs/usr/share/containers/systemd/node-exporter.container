@@ -9,7 +9,7 @@ Wants=network-online.target
 
 [Container]
 ContainerName=node-exporter
-Image=quay.io/prometheus/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+Image=quay.io/prometheus/node-exporter:v1.13.1@sha256:011e2d12c5bff759b90804bda642664775d7b4b127bf5148539bb82d3f590bb7
 GlobalArgs=--storage-opt=additionalimagestore=/usr/lib/bootc/storage
 Network=host
 PodmanArgs=--pid=host
