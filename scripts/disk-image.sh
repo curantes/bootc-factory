@@ -8,6 +8,7 @@ source "$(dirname "$0")/lib.sh"
 
 ref=${1:?usage: disk-image.sh <image-ref> <output.qcow2>}
 dest=${2:?usage: disk-image.sh <image-ref> <output.qcow2>}
+mkdir -p "$REPO_ROOT/out" # git-ignored, so absent on a fresh checkout
 work=$(mktemp -d "$REPO_ROOT/out/disk.XXXXXX")
 trap 'sudo rm -rf "$work"' EXIT
 
