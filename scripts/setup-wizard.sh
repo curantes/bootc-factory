@@ -92,21 +92,24 @@ if ask "Run 'git add -A && git commit && git push -u origin main' now?"; then
 fi
 
 step "7. Branch ruleset for main"
-if ask "Create ruleset: PR required, 'ci-ok' must pass, signed commits, no force-push/deletion?"; then
-	# Commits are not signed locally. Squash-only merging makes GitHub
-	# create (and sign) every commit that lands on main, which satisfies
-	# required_signatures; merge commits would carry unsigned PR commits.
+if ask "Create ruleset: PR required, 'ci-ok' must pass, squash-only, no force-push/deletion?"; then
+	# Commits are not signed locally. PR-only + squash-only + no bypass
+	# means GitHub creates (and signs) every commit that lands on main.
+	# No required_signatures rule: it also checks the PR's own commits, so
+	# it blocks squash merges of unsigned PRs even though the squash commit
+	# is signed (GitHub docs, "Require signed commits").
 	gh repo edit "$repo" --enable-squash-merge --enable-merge-commit=false \
 		--enable-rebase-merge=false >/dev/null
 	jq -n '{
 		name: "main", target: "branch", enforcement: "active",
 		conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
 		rules: [
-			{type: "deletion"}, {type: "non_fast_forward"}, {type: "required_signatures"},
+			{type: "deletion"}, {type: "non_fast_forward"},
 			{type: "pull_request", parameters: {
 				required_approving_review_count: 0, dismiss_stale_reviews_on_push: true,
 				require_code_owner_review: false, require_last_push_approval: false,
-				required_review_thread_resolution: true}},
+				required_review_thread_resolution: true,
+				allowed_merge_methods: ["squash"]}},
 			{type: "required_status_checks", parameters: {
 				strict_required_status_checks_policy: false,
 				required_status_checks: [{context: "ci-ok"}]}}
