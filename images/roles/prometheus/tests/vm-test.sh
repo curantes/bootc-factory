@@ -20,13 +20,17 @@ done
 # An ephemeral VM is not a bootc install, so the bound-image store the
 # Quadlets pass to podman (additionalimagestore) does not exist, and podman
 # refuses to start without it. Create it empty, so podman pulls instead.
-# /usr/lib/bootc/storage is a symlink into /sysroot/ostree; `readlink -f`
-# fails while several parts of its target are missing, so follow one level.
+# /usr/lib/bootc/storage is a symlink into /sysroot/ostree (`readlink -m`
+# resolves it although most of the target is missing), and the ephemeral
+# VM's /sysroot is read-only and otherwise unused: put a tmpfs over it.
 store=/usr/lib/bootc/storage
 if [[ ! -e $store ]]; then
-	target=$(readlink "$store" || true)
-	[[ -z $target || $target == /* ]] || target="$(dirname "$store")/$target"
-	mkdir -p "${target:-$store}"
+	target=$(readlink -m "$store")
+	if ! mkdir -p "$target" 2>/dev/null; then
+		top="/$(cut -d/ -f2 <<<"$target")" # e.g. /sysroot
+		mount -t tmpfs -o mode=0755 bootc-test-store "$top"
+		mkdir -p "$target"
+	fi
 fi
 [[ -d $store ]] || { echo "cannot create the bound-image store $store"; ls -la /usr/lib/bootc; exit 1; }
 
