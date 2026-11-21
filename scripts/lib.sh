@@ -21,7 +21,7 @@ TRIVY_IMAGE=ghcr.io/aquasecurity/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be5
 # shellcheck disable=SC2034
 SYFT_IMAGE=docker.io/anchore/syft:v1.57.1@sha256:03215d0e98b661d0ecbc8575dbc14d65be1743b5de5df6410aecb7e80f95b060
 # shellcheck disable=SC2034
-IMAGE_BUILDER_IMAGE=ghcr.io/osbuild/image-builder-cli:v90.0.0@sha256:8e255e3ddd056fd23255afa4ff4f7e01663b7326e0d811ce708369ff91a9df9f
+IMAGE_BUILDER_IMAGE=ghcr.io/osbuild/image-builder:v91.0.0@sha256:f33fa06204ab382eed24979bc99e880b221fbded5a369a0f40ded881d649d392
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 log() { echo "==> $*" >&2; }

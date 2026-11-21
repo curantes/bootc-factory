@@ -127,7 +127,7 @@
       // Trivy and image-builder run inside the gating jobs: a compromised
       // image could make a gate lie. No timestamps on GHCR, so no age check.
       description: "Gate tool images on GHCR: review, raised without an age check",
-      matchPackageNames: ["ghcr.io/aquasecurity/trivy", "ghcr.io/osbuild/image-builder-cli"],
+      matchPackageNames: ["ghcr.io/aquasecurity/trivy", "ghcr.io/osbuild/image-builder"],
       minimumReleaseAgeBehaviour: "timestamp-optional",
       automerge: false,
       labels: ["dependencies", "review-required"],
