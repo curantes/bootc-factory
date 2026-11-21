@@ -42,7 +42,8 @@ virt-install --name vm1 --memory 4096 --vcpus 2 --import \
 
 For the `prometheus` role, attach a second disk for data and use
 `docs/examples/prometheus-user-data.yaml` (it formats the disk with the label
-`prometheus-data` on first boot).
+`prometheus-data` on first boot; `bootc-prometheus-data.service` mounts it as
+soon as the label appears). Without a data disk, data stays on the `/var` LV.
 
 ### Console access
 
