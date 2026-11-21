@@ -20,11 +20,21 @@ Per image × version × arch, in the reusable workflow `_image.yml`:
 5. **Compliance gate** (OpenSCAP, CIS L2 Server minus documented exceptions)
 6. **Boot test** in an ephemeral KVM VM (bcvk) on x86_64
 
-Only on `main`, after all gates pass: push per-arch images (dated tags),
-attest provenance + SBOM per arch, then in the `release` environment create
-the index, sign with the key, attest SBOMs with the key, attest index
-provenance, verify everything, and **only then** move `<ver>`,
-`<ver>-<date>` and `latest`.
+Only on `main`, after all gates pass, in separate jobs so that third-party
+code never shares a job with a publishing credential:
+
+1. **build** (read-only token) exports the gated image as an OCI archive
+   (artifact, 1 day). It is the only job that runs RPM scriptlets, scanners
+   or a VM, and the only one that runs on pull requests.
+2. **push** (`packages`, `id-token`; no checkout) pushes the archive
+   unchanged (`skopeo --preserve-digests`, failing on any digest mismatch)
+   as a dated per-arch tag and attests provenance + SBOM.
+3. **publish** (`release` environment with the cosign key; no `id-token`)
+   creates the index, signs it with the key, attests SBOMs with the key,
+   verifies the signatures as bootc does, and **only then** moves `<ver>`,
+   `<ver>-<date>` and `latest`.
+4. **attest-index** (`id-token`; no key) attests the index provenance and
+   verifies it with `gh attestation verify`.
 
 ## Scanner choice: Trivy, not Grype
 
