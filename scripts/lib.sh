@@ -47,6 +47,32 @@ unmount_image() {
 	"${PODMAN[@]}" image unmount "$1" >/dev/null || true
 }
 
+# Boot local image $1 in an ephemeral KVM VM (bcvk), with directory $2
+# mounted read-only at /run/virtiofs-mnt-tests, run command $3 there as root
+# (a systemd unit, not SSH: CIS disables root SSH) and copy the output to
+# log file $4. The exit status says nothing about $3; callers read the log.
+bcvk_execute() {
+	local ref=$1 dir=$2 cmd=$3 logfile=$4 conf_env=() sudo_bcvk=(env)
+	command -v bcvk >/dev/null ||
+		die "bcvk not found: use the dev shell (nix develop / direnv)"
+	# bcvk mounts the host's /usr into a container to run QEMU and virtiofsd.
+	[[ -x /usr/bin/qemu-system-x86_64 ]] ||
+		die "QEMU and virtiofsd must come from the host: sudo apt install qemu-system-x86 qemu-utils virtiofsd"
+	# bcvk's container mounts filesystems (not --privileged, no AppArmor opt-out).
+	# Rootful podman on AppArmor hosts (Ubuntu) confines containers with a
+	# profile that denies mount; rootless podman applies none. Run bcvk's
+	# containers unconfined, for this call only.
+	if [[ $(cat /sys/module/apparmor/parameters/enabled 2>/dev/null) == Y ]]; then
+		printf '[containers]\napparmor_profile = "unconfined"\n' >"$dir/containers.conf"
+		conf_env=("CONTAINERS_CONF_OVERRIDE=$dir/containers.conf")
+	fi
+	# bcvk drives podman; run it as the same user that owns the image storage.
+	# Keep PATH: sudo's secure_path would miss a dev-shell bcvk.
+	[[ ${PODMAN[0]} == sudo ]] && sudo_bcvk=(sudo --preserve-env=PATH env -u XDG_RUNTIME_DIR)
+	timeout 25m "${sudo_bcvk[@]}" "${conf_env[@]}" bcvk ephemeral run --rm --memory 4G --vcpus 2 \
+		--ro-bind "$dir:tests" --execute "$cmd" "$ref" 2>&1 | tee "$logfile" || true
+}
+
 upstream_image() {
 	local v
 	v=$(sed -n "s/^UPSTREAM_IMAGE_$1=//p" images/base/upstream.env)
