@@ -1,0 +1,52 @@
+# policy-guard: required check deciding whether a PR may merge without the
+# owner's approval (rules in scripts/policy-guard.py). Approvers come from the
+# POLICY_GUARD_APPROVERS variable (comma-separated), else the repo owner.
+#
+# pull_request_target runs this file and the script from the default branch,
+# so a PR can't change the rules it is judged by. The PR is only read through
+# the API: its code is never checked out or run, and the token is read-only.
+#
+# pull_request_review re-runs the check after an approval. That event runs the
+# PR's copy of this file, so a PR that edits it could fake a pass there; it
+# could equally add any workflow with a job named policy-guard. That only
+# matters for PRs that merge without a human, and only Renovate's do, which
+# never touch workflows beyond action pins (and those need review anyway).
+name: policy-guard
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] PR code is never checked out or run
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions: {}
+
+concurrency:
+  group: policy-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: false # a cancelled run would leave the check red
+
+jobs:
+  policy-guard:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      # The default branch's script, never the PR's (also on review events).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/policy-guard.py
+          sparse-checkout-cone-mode: false
+      - name: Check the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          APPROVERS: ${{ vars.POLICY_GUARD_APPROVERS || github.repository_owner }}
+        run: python3 -I scripts/policy-guard.py

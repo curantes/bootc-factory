@@ -33,12 +33,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Install linters
-        env:
-          # renovate: datasource=github-releases depName=rhysd/actionlint
-          ACTIONLINT_VERSION: v1.7.12
         run: |
+          # Pinned in scripts/lib.sh (outside .github/, so Renovate can bump it).
+          version=$(sed -n 's/^ACTIONLINT_VERSION=//p' scripts/lib.sh)
+          [[ $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad ACTIONLINT_VERSION: '$version'"; exit 1; }
           sudo apt-get install -yq shellcheck
-          go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+          go install "github.com/rhysd/actionlint/cmd/actionlint@${version}"
           echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
       - name: Lint
         run: scripts/lint.sh

@@ -23,6 +23,12 @@ SYFT_IMAGE=docker.io/anchore/syft:v1.57.1@sha256:03215d0e98b661d0ecbc8575dbc14d6
 # shellcheck disable=SC2034
 IMAGE_BUILDER_IMAGE=ghcr.io/osbuild/image-builder-cli:v90.0.0@sha256:8e255e3ddd056fd23255afa4ff4f7e01663b7326e0d811ce708369ff91a9df9f
 
+# Linter versions, read by CI's lint job. Kept out of .github/ so Renovate's
+# patch bumps don't touch a protected path (scripts/policy-guard.py).
+# shellcheck disable=SC2034
+# renovate: datasource=github-releases depName=rhysd/actionlint
+ACTIONLINT_VERSION=v1.7.12
+
 die() { echo "ERROR: $*" >&2; exit 1; }
 log() { echo "==> $*" >&2; }
 
