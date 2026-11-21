@@ -19,6 +19,9 @@ have zizmor && run zizmor --min-severity medium .github/workflows
 echo "--- python syntax"
 run python3 -m py_compile lib/factory/*.py lib/factory/bootc-state scripts/*.py
 
+echo "--- unit tests"
+run python3 -I -m unittest discover -s tests
+
 echo "--- CIS exception files"
 run python3 -I lib/factory/gen-tailoring.py --check \
 	--exceptions images/base/cis-exceptions.txt images/roles/*/cis-exceptions.txt

@@ -76,7 +76,7 @@
       // `# renovate:` annotated versions (bcvk, actionlint)
       customType: "regex",
       description: "Annotated tool versions",
-      managerFilePatterns: ["/^scripts/.+\\.sh$/", "/^\\.github/workflows/.+\\.ya?ml$/"],
+      managerFilePatterns: ["/^scripts/.+\\.sh$/"],
       matchStrings: [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\S+?[=:] ?(?<currentValue>v?[0-9][^\\s]*)",
       ],

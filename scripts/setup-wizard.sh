@@ -92,7 +92,7 @@ if ask "Run 'git add -A && git commit && git push -u origin main' now?"; then
 fi
 
 step "7. Branch ruleset for main"
-if ask "Create ruleset: PR required, 'ci-ok' must pass, squash-only, no force-push/deletion?"; then
+if ask "Create ruleset: PR required, 'ci-ok' and 'policy-guard' must pass, squash-only, no force-push/deletion?"; then
 	# Commits are not signed locally. PR-only + squash-only + no bypass
 	# means GitHub creates (and signs) every commit that lands on main.
 	# No required_signatures rule: it also checks the PR's own commits, so
@@ -112,7 +112,7 @@ if ask "Create ruleset: PR required, 'ci-ok' must pass, squash-only, no force-pu
 				allowed_merge_methods: ["squash"]}},
 			{type: "required_status_checks", parameters: {
 				strict_required_status_checks_policy: false,
-				required_status_checks: [{context: "ci-ok"}]}}
+				required_status_checks: [{context: "ci-ok"}, {context: "policy-guard"}]}}
 		]}' | gh api -X POST "repos/$repo/rulesets" --input - >/dev/null
 	info "Ruleset created. Raise required_approving_review_count when you have co-maintainers."
 fi

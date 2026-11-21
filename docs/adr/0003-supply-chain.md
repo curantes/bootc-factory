@@ -49,4 +49,17 @@ SLSA v1.0 **Build L3**. Verify with
 
 Actions pinned by SHA, tool images pinned by digest (Renovate),
 `permissions: {}` by default, harden-runner (audit), zizmor, actionlint,
-shellcheck, OpenSSF Scorecard, branch ruleset with a single `ci-ok` check.
+shellcheck, OpenSSF Scorecard, branch ruleset with two required checks:
+`ci-ok` (every gate) and `policy-guard`.
+
+`policy-guard` (`scripts/policy-guard.py`, run from the default branch via
+`pull_request_target`, never executing PR code) decides who may merge without
+an approval: the owner's PRs, and Renovate PRs that only bump a pin, digest or
+patch version in the files Renovate maintains. Anything else, including gate
+tool images and every protected path (`.github/`, `keys/`, `security/`,
+`lib/factory/`, CIS exceptions, `factory.yaml`), needs the owner's approval of
+the head commit. It backs up `renovate.json5` rather than trusting it: a
+misconfigured or tampered automerge rule still can't merge a minor bump or a
+new mount. It does not stop someone who can push workflows (a compromised
+Renovate app could fake any check), and required approvals stay 0 until there
+are co-maintainers.
