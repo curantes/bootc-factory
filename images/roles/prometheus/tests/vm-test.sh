@@ -9,6 +9,9 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 
 	-subj /CN=localhost -addext subjectAltName=DNS:localhost \
 	-keyout "$tmp/tls.key" -out "$tmp/tls.crt" 2>/dev/null
 
+# Group "nobody" on purpose, as in docs/examples/prometheus-user-data.yaml: on
+# this host that is gid 99, not the containers' 65534, and the role's tmpfiles
+# lines must fix it before the services start.
 for svc in prometheus alertmanager; do
 	install -d -m 0750 -g nobody "/etc/$svc/tls"
 	install -m 0640 -g nobody "$tmp/tls.key" "$tmp/tls.crt" "/etc/$svc/tls/"
@@ -18,12 +21,32 @@ for svc in prometheus alertmanager; do
 done
 
 # An ephemeral VM is not a bootc install, so the bound-image store the
-# Quadlets reference may not exist; create it so podman falls back to pulling.
-store=$(readlink -f /usr/lib/bootc/storage || true)
-if [[ -n $store && ! -e $store ]]; then mkdir -p "$store" 2>/dev/null || true; fi
+# Quadlets pass to podman (additionalimagestore) does not exist, and podman
+# refuses to start without it. Create it empty, so podman pulls instead.
+# /usr/lib/bootc/storage is a symlink into /sysroot/ostree (`readlink -m`
+# resolves it although most of the target is missing), and the ephemeral
+# VM's /sysroot is read-only and otherwise unused: put a tmpfs over it.
+store=/usr/lib/bootc/storage
+if [[ ! -e $store ]]; then
+	target=$(readlink -m "$store")
+	if ! mkdir -p "$target" 2>/dev/null; then
+		top="/$(cut -d/ -f2 <<<"$target")" # e.g. /sysroot
+		mount -t tmpfs -o mode=0755 bootc-test-store "$top"
+		mkdir -p "$target"
+	fi
+fi
+[[ -d $store ]] || { echo "cannot create the bound-image store $store"; ls -la /usr/lib/bootc; exit 1; }
+
+diagnose() {
+	echo "--- bound-image store: $store -> $(readlink -f "$store" 2>&1)"
+	for svc in prometheus alertmanager; do
+		systemctl status --no-pager --full "$svc.service" || true
+		journalctl -b -u "$svc.service" --no-pager | tail -40
+	done
+}
 
 systemctl daemon-reload
-systemctl start prometheus.service alertmanager.service
+systemctl start prometheus.service alertmanager.service || { diagnose; exit 1; }
 
 ready() {
 	local url=$1

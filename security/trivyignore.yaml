@@ -19,3 +19,7 @@ vulnerabilities:
     paths: ["bin/prometheus", "bin/promtool", "bin/alertmanager", "bin/amtool"]
     statement: "golang.org/x/net/html DoS (fixed in x/net 0.62.0) in prometheus v3.16.0 and alertmanager v0.35.0, both latest upstream; awaiting upstream releases. Off until web.yml (TLS + auth) exists, read-only, no capabilities. Accepted 2026-11-16."
     expired_at: 2026-12-15
+  - id: CVE-2026-97054
+    paths: ["bin/prometheus", "bin/promtool", "bin/alertmanager", "bin/amtool"]
+    statement: "Go stdlib net/http MaxBytesReader issue (fixed in Go 1.26.11/1.27.4) in prometheus v3.16.0 and alertmanager v0.35.0 (Go 1.27.3), both latest upstream; awaiting rebuilds. Off until web.yml (TLS + basic auth) exists, and auth runs before any handler reads a request body; read-only, no capabilities. Accepted 2026-11-21."
+    expired_at: 2026-12-05

@@ -14,7 +14,7 @@ COPY rootfs/ /
 COPY cis-exceptions.txt /usr/share/bootc-factory/cis-exceptions.d/50-prometheus.txt
 
 RUN firewall-offline-cmd --add-service=bootc-prometheus --add-service=bootc-alertmanager \
- && systemctl enable var-lib-prometheus.mount
+ && systemctl enable bootc-prometheus-data.service
 
 # Must be the last instruction: re-applies CIS hardening and lints.
 RUN /usr/libexec/bootc-factory/finalize
