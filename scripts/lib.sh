@@ -68,14 +68,10 @@ bcvk_execute() {
 	fi
 	# bcvk drives podman; run it as the same user that owns the image storage.
 	# Keep PATH: sudo's secure_path would miss a dev-shell bcvk.
-	if [[ ${PODMAN[0]} == sudo ]]; then
-		sudo_bcvk=(sudo --preserve-env=PATH env -u XDG_RUNTIME_DIR)
-		# Ask for the password now: under `timeout` sudo runs in a background
-		# process group, and a password prompt there stops it (SIGTTIN)
-		# without a word.
-		sudo -v
-	fi
-	timeout 25m "${sudo_bcvk[@]}" "${conf_env[@]}" bcvk ephemeral run --rm --memory 4G --vcpus 2 \
+	[[ ${PODMAN[0]} == sudo ]] && sudo_bcvk=(sudo --preserve-env=PATH env -u XDG_RUNTIME_DIR)
+	# --foreground: otherwise timeout runs sudo in a background process
+	# group, where a password prompt stops it (SIGTTIN) without a word.
+	timeout --foreground 25m "${sudo_bcvk[@]}" "${conf_env[@]}" bcvk ephemeral run --rm --memory 4G --vcpus 2 \
 		--ro-bind "$dir:tests" --execute "$cmd" "$ref" 2>&1 | tee "$logfile" || true
 }
 
