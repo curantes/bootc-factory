@@ -33,11 +33,14 @@ docs/                   ADRs, operations, adding a role, cloud-init examples
 ## Quick start
 
 ```sh
-nix develop                 # or `direnv allow`: just, cosign, yq, linters, gh
+nix develop                 # or `direnv allow`: just, cosign, yq, linters, gh, bcvk
+sudo apt install qemu-system-x86 qemu-utils virtiofsd   # once, for VMs: bcvk uses the host's QEMU (+ kvm group)
 scripts/setup-wizard.sh     # once: repo, signing key, environment, ruleset, Renovate
 just build base 10
 just build prometheus 10
 just check prometheus 10    # SBOM, Trivy, OpenSCAP, boot test
+just smoke prometheus 10    # fast loop: build + boot test only
+just vm-exec prometheus 'bash role.sh; journalctl -b -u prometheus'   # look inside a VM
 just new-role grafana       # scaffold the next role
 ```
 

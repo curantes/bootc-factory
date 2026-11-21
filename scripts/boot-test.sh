@@ -13,7 +13,6 @@ name=${1:?usage: boot-test.sh <image> <version>}
 ver=${2:?usage: boot-test.sh <image> <version>}
 ref=$(local_ref "$name" "$ver")
 out=$(outdir "$name" "$ver")
-command -v bcvk >/dev/null || die "bcvk not installed (https://github.com/bootc-dev/bcvk)"
 
 tests=$(mktemp -d)
 trap 'rm -rf "$tests"' EXIT
@@ -26,27 +25,16 @@ cd /run/virtiofs-mnt-tests || exit 1
 if bash ./base.sh && { [ ! -f role.sh ] || bash ./role.sh; }; then
 	echo "BOOT-TEST-RESULT: PASS"
 else
+	echo "--- failed units"
+	systemctl --failed --no-pager
+	echo "--- errors in this boot's journal"
+	journalctl -b -p err --no-pager | tail -60
 	echo "BOOT-TEST-RESULT: FAIL"
 fi
 RUN
 
 log "Booting $ref"
-# bcvk's container mounts filesystems (not --privileged, no AppArmor opt-out).
-# Rootful podman on AppArmor hosts (Ubuntu) confines containers with a
-# profile that denies mount; rootless podman applies none. Run bcvk's
-# containers unconfined, for this call only.
-conf_env=()
-if [[ $(cat /sys/module/apparmor/parameters/enabled 2>/dev/null) == Y ]]; then
-	printf '[containers]\napparmor_profile = "unconfined"\n' >"$tests/containers.conf"
-	conf_env=("CONTAINERS_CONF_OVERRIDE=$tests/containers.conf")
-fi
-# bcvk drives podman; run it as the same user that owns the image storage.
-sudo_bcvk=(env)
-[[ ${PODMAN[0]} == sudo ]] && sudo_bcvk=(sudo --preserve-env=PATH env -u XDG_RUNTIME_DIR)
-timeout 25m "${sudo_bcvk[@]}" "${conf_env[@]}" bcvk ephemeral run --rm --memory 4G --vcpus 2 \
-	--ro-bind "$tests:tests" \
-	--execute "/usr/bin/bash /run/virtiofs-mnt-tests/run.sh" \
-	"$ref" 2>&1 | tee "$out/boot-test.log" || true
+bcvk_execute "$ref" "$tests" "/usr/bin/bash /run/virtiofs-mnt-tests/run.sh" "$out/boot-test.log"
 
 grep -q 'BOOT-TEST-RESULT: PASS' "$out/boot-test.log" || die "boot test failed (see $out/boot-test.log)"
 log "Boot test passed"
