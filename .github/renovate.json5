@@ -15,6 +15,14 @@
   // Required checks are not strict and main re-runs every gate before it
   // publishes, so don't rebuild every open PR after each merge.
   rebaseWhen: "conflicted",
+  // Expected for Quay/GHCR (no release timestamps, timestamp-optional below):
+  // log it as info so the dashboard's "Repository problems" stays meaningful.
+  logLevelRemap: [
+    {
+      matchMessage: "/Some .+ did not have a releaseTimestamp, but as we're running with minimumReleaseAgeBehaviour=timestamp-optional, proceeding/",
+      newLogLevel: "info",
+    },
+  ],
   // Renovate reads Dependabot alerts and opens [SECURITY] PRs immediately
   // (vulnerability PRs have no minimumReleaseAge); automerge follows the
   // packageRules like any other update.
