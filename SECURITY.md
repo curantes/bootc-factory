@@ -14,8 +14,8 @@ updates. Dated tags are immutable snapshots kept for 90 days for rollback.
 ## Verifying images
 
 Every published image is signed with the repository's cosign key
-([`keys/cosign.pub`](keys/cosign.pub)), signed keylessly by this repository's
-CI, and carries SLSA build provenance and an SPDX SBOM:
+([`keys/cosign.pub`](keys/cosign.pub)) and carries SLSA build provenance
+(which names the workflow that built it) and an SPDX SBOM:
 
 ```sh
 scripts/verify-image.sh ghcr.io/curantes/bootc-base:10   # cosign key, checked as bootc does

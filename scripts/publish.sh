@@ -39,8 +39,6 @@ echo "digest=$index" >>"${GITHUB_OUTPUT:-/dev/null}"
 
 log "Signing (cosign key; verified by bootc/podman via policy.json)"
 cosign sign --yes --recursive --key env://COSIGN_PRIVATE_KEY "$repo@$index"
-log "Signing (keyless; GitHub OIDC identity for CI-side verification)"
-cosign sign --yes --recursive "$repo@$index"
 
 # bootc and podman only read signatures from the sha256-<digest>.sig tag.
 # cosign verify also accepts newer storage formats (cosign 3.x defaults),
