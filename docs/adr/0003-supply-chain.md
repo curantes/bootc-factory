@@ -22,7 +22,7 @@ Per image × version × arch, in the reusable workflow `_image.yml`:
 
 Only on `main`, after all gates pass: push per-arch images (dated tags),
 attest provenance + SBOM per arch, then in the `release` environment create
-the index, sign (key + keyless), attest SBOMs with the key, attest index
+the index, sign with the key, attest SBOMs with the key, attest index
 provenance, verify everything, and **only then** move `<ver>`,
 `<ver>-<date>` and `latest`.
 

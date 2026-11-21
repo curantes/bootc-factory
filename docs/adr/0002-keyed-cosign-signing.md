@@ -1,6 +1,6 @@
-# 2. Keyed cosign signatures, plus keyless for CI verification
+# 2. Keyed cosign signatures, provenance for workflow identity
 
-Date: 2026-11-15 · Status: accepted
+Date: 2026-11-15 · Status: accepted · Amended: 2026-11-21 (keyless signing dropped)
 
 ## Context
 
@@ -21,8 +21,14 @@ e-mail SAN, while Actions certificates carry a URI SAN
   rotation ships the new key one release ahead. Local-only transports
   (`containers-storage`, `oci`, `oci-archive`) are accepted: they hold content
   already on the machine and are needed by rpm-ostree rechunking and osbuild.
-- **Also** sign keylessly and publish GitHub attestations, for CI/policy
-  tooling that can verify workflow identity.
+- Workflow identity comes from the GitHub build provenance attestation
+  (`actions/attest`, verified with `gh attestation verify
+  --signer-workflow`), not from a keyless cosign signature. Until
+  2026-11-21 images were also signed keylessly; nothing verified that
+  signature (bootc can't, see above), the provenance already binds the
+  digest to the workflow with the same Sigstore trust root, and without
+  it the job holding the key no longer needs `id-token: write` once the
+  index attestation moves to a job of its own.
 - Pin cosign to **2.x**: cosign 3 stores signatures where podman/bootc do not
   look yet.
 - Hosts installed from a disk image re-target themselves once with
@@ -32,5 +38,7 @@ e-mail SAN, while Actions certificates carry a URI SAN
 ## Consequences
 
 - A leaked key + password allows signing; mitigated by environment
-  protection, yearly rotation, and keyless signatures/provenance as a second
-  check. Revisit KMS or keyless-only once the policy supports URI SANs.
+  protection, yearly rotation, and build provenance as a second check.
+  Revisit KMS or keyless-only once the policy supports URI SANs
+  (containers/container-libs#625): then hosts can verify a keyless
+  signature themselves.
