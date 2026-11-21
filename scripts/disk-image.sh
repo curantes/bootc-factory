@@ -12,6 +12,19 @@ mkdir -p "$REPO_ROOT/out" # git-ignored, so absent on a fresh checkout
 work=$(mktemp -d "$REPO_ROOT/out/disk.XXXXXX")
 trap 'sudo rm -rf "$work"' EXIT
 
+# image-builder resolves an index to its per-arch manifest and then looks
+# that digest up in local storage, where podman doesn't record it when it
+# pulled by index digest. So resolve the per-arch manifest here and use it
+# for both.
+raw=$(skopeo inspect --raw "docker://$ref")
+if jq -e '.manifests' <<<"$raw" >/dev/null; then
+	digest=$(jq -r --arg arch "$ARCH" \
+		'[.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch)][0].digest // empty' <<<"$raw")
+	[[ -n $digest ]] || die "$ref has no linux/$ARCH image"
+	ref="$(ref_repo "$ref")@$digest"
+	log "Using the $ARCH image $ref"
+fi
+
 "${PODMAN[@]}" pull -q "$ref" >/dev/null
 mkdir -p "$work/output"
 "${PODMAN[@]}" run --rm --privileged --pull=missing \
