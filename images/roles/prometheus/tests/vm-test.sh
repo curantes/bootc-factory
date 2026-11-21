@@ -18,12 +18,20 @@ for svc in prometheus alertmanager; do
 done
 
 # An ephemeral VM is not a bootc install, so the bound-image store the
-# Quadlets reference may not exist; create it so podman falls back to pulling.
-store=$(readlink -f /usr/lib/bootc/storage || true)
-if [[ -n $store && ! -e $store ]]; then mkdir -p "$store" 2>/dev/null || true; fi
+# Quadlets pass to podman (additionalimagestore) does not exist, and podman
+# refuses to start without it. Create it empty, so podman pulls instead.
+# /usr/lib/bootc/storage is a symlink into /sysroot/ostree; `readlink -f`
+# fails while several parts of its target are missing, so follow one level.
+store=/usr/lib/bootc/storage
+if [[ ! -e $store ]]; then
+	target=$(readlink "$store" || true)
+	[[ -z $target || $target == /* ]] || target="$(dirname "$store")/$target"
+	mkdir -p "${target:-$store}"
+fi
+[[ -d $store ]] || { echo "cannot create the bound-image store $store"; ls -la /usr/lib/bootc; exit 1; }
 
 diagnose() {
-	echo "--- bound-image store: ${store:-<none>} ($(stat -c %F "${store:-/nonexistent}" 2>&1))"
+	echo "--- bound-image store: $store -> $(readlink -f "$store" 2>&1)"
 	for svc in prometheus alertmanager; do
 		systemctl status --no-pager --full "$svc.service" || true
 		journalctl -b -u "$svc.service" --no-pager | tail -40
