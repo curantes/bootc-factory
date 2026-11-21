@@ -54,6 +54,34 @@ upstream_image() {
 	echo "$v"
 }
 
+# Repository part of an image reference: strip @digest, then a :tag (but not
+# a registry :port).
+ref_repo() {
+	local repo=${1%%@*}
+	[[ ${repo##*/} == *:* ]] && repo=${repo%:*}
+	echo "$repo"
+}
+
+# Write a containers/image policy.json and registries.d into directory $3
+# that accept only repository $1 signed with cosign public key $2 (absolute
+# path), read from the sha256-<digest>.sig tag. This is how bootc and podman
+# verify, so it never mistakes another signature format for ours.
+sigstore_policy() {
+	local repo=$1 key=$2 dir=$3
+	cat >"$dir/policy.json" <<-EOF
+		{
+		  "default": [{"type": "reject"}],
+		  "transports": {"docker": {"$repo": [{
+		    "type": "sigstoreSigned",
+		    "keyPath": "$key",
+		    "signedIdentity": {"type": "matchRepository"}
+		  }]}}
+		}
+	EOF
+	mkdir -p "$dir/registries.d"
+	printf 'docker:\n  %s:\n    use-sigstore-attachments: true\n' "$repo" >"$dir/registries.d/sigstore.yaml"
+}
+
 # Copy an upstream base image into root's container storage, but only if
 # AlmaLinux's cosign signature verifies. This uses the same containers/image
 # policy code as bootc and podman, so it also catches signatures stored where
@@ -61,21 +89,9 @@ upstream_image() {
 # github.com/AlmaLinux/bootc-images (cosign.pub) and AlmaLinux/atomic-desktop.
 pull_verified_upstream() {
 	local ref=$1 repo dir
-	repo=${ref%%@*}
-	repo=${repo%:*}
+	repo=$(ref_repo "$ref")
 	dir=$(mktemp -d)
-	cat >"$dir/policy.json" <<-EOF
-		{
-		  "default": [{"type": "reject"}],
-		  "transports": {"docker": {"$repo": [{
-		    "type": "sigstoreSigned",
-		    "keyPath": "$REPO_ROOT/images/base/almalinux-bootc.pub",
-		    "signedIdentity": {"type": "matchRepository"}
-		  }]}}
-		}
-	EOF
-	mkdir "$dir/registries.d"
-	printf 'docker:\n  %s:\n    use-sigstore-attachments: true\n' "$repo" >"$dir/registries.d/upstream.yaml"
+	sigstore_policy "$repo" "$REPO_ROOT/images/base/almalinux-bootc.pub" "$dir"
 	log "Pulling $ref (signature verified with images/base/almalinux-bootc.pub)"
 	# Same privileges as PODMAN (sudo for root storage), with skopeo instead.
 	# Absolute path: sudo's secure_path misses e.g. a Nix-provided skopeo.

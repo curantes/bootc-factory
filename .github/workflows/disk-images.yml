@@ -91,8 +91,8 @@ jobs:
           repo="ghcr.io/${OWNER,,}/bootc-$IMAGE"
           digest=$(skopeo inspect --raw "docker://$repo:$VERSION" | sha256sum | cut -d' ' -f1)
           ref="$repo@sha256:$digest"
-          # Legacy .sig signatures (what bootc reads), not the actions/attest bundle.
-          cosign verify --new-bundle-format=false --key keys/cosign.pub "$ref" >/dev/null
+          # Verified the way bootc does (containers/image policy, our key).
+          scripts/verify-image.sh "$ref"
           echo "Verified $ref"
           echo "ref=$ref" >>"$GITHUB_OUTPUT"
 
