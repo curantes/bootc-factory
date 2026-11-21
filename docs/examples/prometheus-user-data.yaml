@@ -2,6 +2,10 @@
 # Example user-data for bootc-prometheus. Attach a second, empty disk for
 # data; it is formatted with the label `prometheus-data` on first boot and
 # mounted at /var/lib/prometheus as soon as the label appears.
+#
+# File groups below don't matter: the image sets gid 65534 (the containers'
+# user) on web.yml, alertmanager.yml, secrets/ and tls/ before every start.
+# Keep the modes: 0640 for secrets and keys, 0644 for certificates.
 hostname: prometheus1
 users:
   - name: admin

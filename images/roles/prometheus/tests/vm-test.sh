@@ -9,6 +9,9 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 
 	-subj /CN=localhost -addext subjectAltName=DNS:localhost \
 	-keyout "$tmp/tls.key" -out "$tmp/tls.crt" 2>/dev/null
 
+# Group "nobody" on purpose, as in docs/examples/prometheus-user-data.yaml: on
+# this host that is gid 99, not the containers' 65534, and the role's tmpfiles
+# lines must fix it before the services start.
 for svc in prometheus alertmanager; do
 	install -d -m 0750 -g nobody "/etc/$svc/tls"
 	install -m 0640 -g nobody "$tmp/tls.key" "$tmp/tls.crt" "/etc/$svc/tls/"
