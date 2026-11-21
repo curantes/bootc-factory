@@ -1,6 +1,7 @@
 #cloud-config
 # Example user-data for bootc-prometheus. Attach a second, empty disk for
-# data; it is formatted with the label `prometheus-data` on first boot.
+# data; it is formatted with the label `prometheus-data` on first boot and
+# mounted at /var/lib/prometheus as soon as the label appears.
 hostname: prometheus1
 users:
   - name: admin
@@ -103,5 +104,4 @@ write_files:
 
 runcmd:
   - [systemctl, daemon-reload]
-  - [systemctl, restart, var-lib-prometheus.mount]
   - [systemctl, start, alertmanager.service, prometheus.service]

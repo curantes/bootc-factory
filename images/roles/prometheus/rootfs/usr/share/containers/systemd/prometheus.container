@@ -3,8 +3,8 @@
 [Unit]
 Description=Prometheus server
 ConditionPathExists=/etc/prometheus/web.yml
-Wants=network-online.target var-lib-prometheus.mount
-After=network-online.target var-lib-prometheus.mount
+Wants=network-online.target
+After=network-online.target
 
 [Container]
 ContainerName=prometheus
