@@ -22,8 +22,16 @@ done
 store=$(readlink -f /usr/lib/bootc/storage || true)
 if [[ -n $store && ! -e $store ]]; then mkdir -p "$store" 2>/dev/null || true; fi
 
+diagnose() {
+	echo "--- bound-image store: ${store:-<none>} ($(stat -c %F "${store:-/nonexistent}" 2>&1))"
+	for svc in prometheus alertmanager; do
+		systemctl status --no-pager --full "$svc.service" || true
+		journalctl -b -u "$svc.service" --no-pager | tail -40
+	done
+}
+
 systemctl daemon-reload
-systemctl start prometheus.service alertmanager.service
+systemctl start prometheus.service alertmanager.service || { diagnose; exit 1; }
 
 ready() {
 	local url=$1
