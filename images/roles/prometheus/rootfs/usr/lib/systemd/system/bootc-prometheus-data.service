@@ -1,0 +1,28 @@
+# Optional dedicated data disk, found by filesystem label. Without it, data
+# lives on the /var LV.
+#
+# Started by udev whenever a filesystem labelled prometheus-data appears:
+# at boot, or later, e.g. right after cloud-init's fs_setup formats it.
+# This is deliberately not a static var-lib-prometheus.mount: Quadlet adds
+# RequiresMountsFor= for every Volume= path, so the services would require
+# that mount, and without the disk its device job times out and fails them.
+# Mounted from here, the mount unit only exists while the disk is mounted.
+[Unit]
+Description=Mount the Prometheus data disk (LABEL=prometheus-data)
+BindsTo=dev-disk-by\x2dlabel-prometheus\x2ddata.device
+After=dev-disk-by\x2dlabel-prometheus\x2ddata.device local-fs.target systemd-tmpfiles-setup.service
+Before=prometheus.service alertmanager.service
+ConditionPathIsMountPoint=!/var/lib/prometheus
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/mkdir -p /var/lib/prometheus
+ExecStart=/usr/bin/mount -t xfs -o nodev,nosuid,noexec /dev/disk/by-label/prometheus-data /var/lib/prometheus
+# A fresh disk has no data directories yet.
+ExecStartPost=/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/bootc-prometheus.conf
+# If the services already run (disk formatted after boot), move them onto it.
+ExecStartPost=/usr/bin/systemctl --no-block try-restart prometheus.service alertmanager.service
+
+[Install]
+WantedBy=dev-disk-by\x2dlabel-prometheus\x2ddata.device

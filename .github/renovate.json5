@@ -7,19 +7,40 @@
     ":separateMultipleMajorReleases",
   ],
   timezone: "Europe/Stockholm",
-  labels: ["dependencies"],
-  // Renovate reads Dependabot alerts and opens [SECURITY] PRs immediately.
+  // Default: a human reviews and merges, after a week. packageRules below
+  // opt specific update types into automerge (label "automerge"). The
+  // policy-guard check enforces the same split independently.
+  labels: ["dependencies", "review-required"],
+  minimumReleaseAge: "7 days",
+  // Required checks are not strict and main re-runs every gate before it
+  // publishes, so don't rebuild every open PR after each merge.
+  rebaseWhen: "conflicted",
+  // Expected for Quay/GHCR (no release timestamps, timestamp-optional below):
+  // log it as info so the dashboard's "Repository problems" stays meaningful.
+  logLevelRemap: [
+    {
+      matchMessage: "/Some .+ did not have a releaseTimestamp, but as we're running with minimumReleaseAgeBehaviour=timestamp-optional, proceeding/",
+      newLogLevel: "info",
+    },
+  ],
+  // Renovate reads Dependabot alerts and opens [SECURITY] PRs immediately
+  // (vulnerability PRs have no minimumReleaseAge); automerge follows the
+  // packageRules like any other update.
   vulnerabilityAlerts: {
     enabled: true,
-    labels: ["security"],
+    addLabels: ["security"],
     schedule: ["at any time"],
   },
   osvVulnerabilityAlerts: true,
   nix: { enabled: true },
-  // Weekly flake.lock refresh (nixpkgs for the dev shell).
+  // Weekly flake.lock refresh. It only feeds the dev shell (CI doesn't use
+  // the flake), so it merges itself.
   lockFileMaintenance: {
     enabled: true,
     schedule: ["before 6am on monday"],
+    automerge: true,
+    labels: ["dependencies", "automerge"],
+    minimumReleaseAge: null, // no single release to age; would wait forever
   },
   customManagers: [
     {
@@ -74,32 +95,67 @@
       enabled: false,
     },
     {
-      description: "Automerge digest pins/bumps and patches once every CI gate is green",
-      matchUpdateTypes: ["pin", "pinDigest", "digest", "patch"],
-      automerge: true,
-      automergeType: "pr",
-      platformAutomerge: true,
-    },
-    {
       description: "Group the upstream base digests: one rebuild of everything",
       matchDepNames: ["quay.io/almalinuxorg/almalinux-bootc"],
       groupName: "almalinux bootc base",
     },
+    // ---- automerge (later rules override earlier ones) --------------------
     {
-      description: "Group GitHub Actions digest updates",
+      description: "Digest pins/bumps and patches merge themselves after 3 days, once every gate is green",
+      matchUpdateTypes: ["pin", "pinDigest", "digest", "patch"],
+      automerge: true,
+      automergeType: "pr",
+      platformAutomerge: true,
+      labels: ["dependencies", "automerge"],
+      minimumReleaseAge: "3 days",
+    },
+    {
+      description: "Upstream AlmaLinux digests: no wait, the build verifies AlmaLinux's signature",
+      matchDepNames: ["quay.io/almalinuxorg/almalinux-bootc"],
+      minimumReleaseAge: null,
+    },
+    {
+      // Quay and GHCR expose no release timestamps, so Renovate cannot age
+      // these and would otherwise hold them forever. Bound images still pass
+      // Trivy (gated on everything) and the VM boot test.
+      description: "Bound images (Quay): automerge without an age check",
+      matchPackageNames: ["quay.io/prometheus/**"],
+      minimumReleaseAgeBehaviour: "timestamp-optional",
+    },
+    // ---- always a human -----------------------------------------------------
+    {
+      // Trivy and image-builder run inside the gating jobs: a compromised
+      // image could make a gate lie. No timestamps on GHCR, so no age check.
+      description: "Gate tool images on GHCR: review, raised without an age check",
+      matchPackageNames: ["ghcr.io/aquasecurity/trivy", "ghcr.io/osbuild/image-builder-cli"],
+      minimumReleaseAgeBehaviour: "timestamp-optional",
+      automerge: false,
+      labels: ["dependencies", "review-required"],
+    },
+    {
+      // Actions run in every job, including the ones that hold the signing
+      // key. Release age can't help here: digest-pinned actions are aged by
+      // the tag's commit date, so a hijacked, force-pushed tag passes at once.
+      description: "GitHub Actions: always reviewed, weekly, one group",
       matchManagers: ["github-actions"],
-      matchUpdateTypes: ["digest", "pinDigest", "patch", "minor"],
       groupName: "github actions",
+      schedule: ["before 6am on monday"],
+      automerge: false,
+      labels: ["dependencies", "review-required"],
+      minimumReleaseAge: "7 days",
     },
     {
       description: "cosign must stay on 2.x until podman/bootc read the cosign 3 signature format",
       matchPackageNames: ["sigstore/cosign"],
       allowedVersions: "<3",
+      automerge: false,
+      labels: ["dependencies", "review-required"],
     },
     {
       description: "bcvk bumps need the matching SHA256 updated by hand",
       matchDepNames: ["bootc-dev/bcvk"],
       automerge: false,
+      labels: ["dependencies", "review-required"],
       prBodyNotes: ["Update `BCVK_SHA256_X86_64` in scripts/ci-setup.sh from the release's `.sha256` asset."],
     },
   ],
