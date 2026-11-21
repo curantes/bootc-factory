@@ -52,6 +52,8 @@ for digest in "$index" "${children[@]}"; do
 		die "no signature at $sig: bootc/podman clients would reject $repo@$digest"
 done
 log "Signatures stored where bootc/podman look for them"
+# And they verify with our key, exactly as on a host, before any tag moves.
+"$REPO_ROOT/scripts/verify-image.sh" "$repo@$index"
 
 if [[ -n ${SBOM_DIR:-} ]]; then
 	for f in "$digests"/*; do

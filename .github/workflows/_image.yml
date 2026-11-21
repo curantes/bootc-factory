@@ -263,20 +263,12 @@ jobs:
           REF: ${{ steps.publish.outputs.repo }}@${{ steps.publish.outputs.digest }}
           REPO: ${{ github.repository }}
         run: |
-          # --new-bundle-format=false: read our signatures from the .sig tag
-          # (where bootc/podman look). Otherwise cosign switches to the
-          # Sigstore bundle actions/attest stores under sha256-<digest>: the
-          # keyed check then fails ("expected key signature, not
-          # certificate") and the keyless one passes on GitHub's provenance
-          # instead of our own signature.
-          cosign verify --new-bundle-format=false --key keys/cosign.pub "$REF" >/dev/null
-          cosign verify --new-bundle-format=false \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/_image\.yml@refs/heads/main$" \
-            "$REF" >/dev/null
+          # The cosign-key signatures were verified the way bootc does
+          # (scripts/verify-image.sh) before publish.sh moved any tag.
+          # This checks the build provenance and its workflow identity.
           gh attestation verify "oci://$REF" --repo "$REPO" \
             --signer-workflow "$REPO/.github/workflows/_image.yml"
-          echo "Signatures and provenance verified for $REF"
+          echo "Provenance verified for $REF"
       - name: Summary
         env:
           REF: ${{ steps.publish.outputs.repo }}:${{ matrix.version }}

@@ -10,7 +10,9 @@
 Verify before use:
 
 ```sh
-cosign verify --new-bundle-format=false --key keys/cosign.pub ghcr.io/curantes/bootc-base:10
+# containers/image policy with keys/cosign.pub, as bootc and podman verify.
+# (cosign verify --key fails here: it prefers the provenance bundle.)
+scripts/verify-image.sh ghcr.io/curantes/bootc-base:10
 gh attestation verify oci://ghcr.io/curantes/bootc-base:10 --repo curantes/bootc-factory
 ```
 
