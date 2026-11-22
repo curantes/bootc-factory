@@ -8,7 +8,8 @@ Date: 2026-11-15 · Status: accepted
   compression, cloud-init with datasource auto-detection) per image ×
   version × arch, weekly and on demand, as a GitHub Release with
   `SHA256SUMS`, a cosign blob bundle and a provenance attestation.
-- Build with **image-builder** (`ghcr.io/osbuild/image-builder-cli`):
+- Build with **image-builder** (`ghcr.io/osbuild/image-builder`; the
+  `image-builder-cli` image is the same build under its pre-merge name):
   `bootc-image-builder` is deprecated and merged into image-builder.
 - Disk layout (`disk/qcow2.toml`): LVM with separate `/var`, `/var/log`,
   `/var/log/audit`, `/var/tmp`; free VG space for growth.
