@@ -105,6 +105,18 @@ jobs:
           scripts/disk-image.sh "$REF" "dist/$name"
           echo "NAME=$name" >>"$GITHUB_ENV"
 
+      # osbuild only reports "permission denied"; the kernel log says who denied.
+      - name: Show AppArmor denials
+        if: failure()
+        run: |
+          denials=$({
+            sudo dmesg
+            sudo journalctl --boot --no-pager
+            sudo cat /var/log/audit/audit.log
+          } 2>/dev/null | grep -ao 'apparmor="DENIED".*' |
+            sed -E 's/ pid=[0-9]+//' | sort | uniq -c | sort -rn | head -n 100 || true)
+          echo "${denials:-No AppArmor denials logged}"
+
       - name: Sign (cosign key)
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}

@@ -16,5 +16,10 @@ Date: 2026-11-15 · Status: accepted
 
 ## Consequences
 
+image-builder doesn't work on hosts that load Ubuntu's AppArmor profile
+`bwrap-userns-restrict`: it also confines the bwrap inside the privileged
+container. `scripts/ci-setup.sh disk-image` unloads it on GitHub-hosted
+runners only; elsewhere that is the host administrator's decision.
+
 Releases are platform-neutral; any hypervisor/cloud that imports qcow2 over
 HTTPS works. GitHub release assets are limited to 2 GiB each.
