@@ -20,11 +20,38 @@ Per image × version × arch, in the reusable workflow `_image.yml`:
 5. **Compliance gate** (OpenSCAP, CIS L2 Server minus documented exceptions)
 6. **Boot test** in an ephemeral KVM VM (bcvk) on x86_64
 
-Only on `main`, after all gates pass: push per-arch images (dated tags),
-attest provenance + SBOM per arch, then in the `release` environment create
-the index, sign with the key, attest SBOMs with the key, attest index
-provenance, verify everything, and **only then** move `<ver>`,
-`<ver>-<date>` and `latest`.
+The work is split into jobs so that third-party code never shares a job
+with a publishing credential:
+
+1. **build** (read-only token) exports the gated image as an OCI archive
+   (artifact, 1 day), with the manifest digest and SBOM hash as job outputs.
+   It is the only job that runs RPM scriptlets, scanners or a VM.
+2. **sarif** (`security-events`) uploads the Trivy results to code scanning.
+
+Only on `main`, after all gates pass:
+
+3. **push** (`packages`, `id-token`; no checkout) checks the archive and
+   SBOM against build's outputs before logging in, pushes the archive
+   unchanged (`skopeo --preserve-digests`) as a dated per-arch tag and
+   attests provenance + SBOM.
+4. **publish** (`release` environment with the cosign key; no `id-token`)
+   creates the index from build's digests, signs it with the key, attests
+   SBOMs with the key, verifies the signatures as bootc does, and **only
+   then** moves `<ver>`, `<ver>-<date>` and `latest`.
+5. **attest-index** (`id-token`; no key) attests the index digest from
+   publish's output and verifies it with `gh attestation verify`.
+
+Any job in a run can write any artifact, so artifacts carry content only.
+Digests that get pushed, signed or attested always come from job outputs.
+These have static names: a new version or arch needs a line in `_image.yml`
+(the matrix job fails until it has one).
+
+The split confines third-party code. It does not confine people or bots
+that can push branches here: their pull requests run their own copy of the
+workflows and can request `packages: write` or `id-token`. Only the cosign
+key is out of their reach (`release` environment, `main` only), so the key
+signature is what hosts trust. Pull requests from forks get read-only
+tokens.
 
 ## Scanner choice: Trivy, not Grype
 

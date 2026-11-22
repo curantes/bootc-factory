@@ -4,6 +4,28 @@
 # All builds and provenance happen inside this reusable workflow, so the
 # GitHub attestations name it as the builder (SLSA v1.0 Build L3 on
 # GitHub-hosted runners). See docs/adr/0003-supply-chain.md.
+#
+# Jobs never mix third-party code with publishing credentials:
+#   build        builds and gates; runs RPM scriptlets, Trivy, OpenSCAP and a
+#                VM. Read-only token. Hands the gated image on as an OCI
+#                archive (artifact, 1 day) and its hashes as job outputs.
+#   sarif        uploads Trivy's results to code scanning.
+#                security-events; runs no image and no repository code.
+#   push         pushes that archive unchanged (checked against build's
+#                outputs before login) and attests it. packages + id-token; no
+#                checkout, no build tools.
+#   publish      index, cosign-key signature, SBOM attestation, tag promotion.
+#                The key (release environment, main only); no id-token.
+#   attest-index provenance for the index, then verifies it. id-token; no key.
+#
+# Any job in a run can write any artifact, so artifacts only carry content:
+# every digest that gets pushed, signed or attested comes from job outputs.
+#
+# Pull requests run only build and sarif. That limits what third-party code
+# can reach, not who can write to the repository: a PR from a branch in this
+# repository runs its own copy of the workflows and can request any token
+# permission. It can't get the key (release environment, main only). PRs
+# from forks only get read-only tokens.
 name: image
 
 on:
@@ -40,8 +62,13 @@ jobs:
         env:
           IMAGE: ${{ inputs.image }}
         run: |
+          matrix=$(scripts/plan.sh matrix "$IMAGE")
+          # Job outputs need static names. Fail here, which also runs on PRs,
+          # rather than in push after the merge.
+          jq -e 'all(.include[]; "\(.version)-\(.arch)" | test("^(9|10)-(amd64|arm64)$"))' <<<"$matrix" >/dev/null ||
+            { echo "::error::declare build and publish outputs in _image.yml for every version and arch"; exit 1; }
           {
-            echo "matrix=$(scripts/plan.sh matrix "$IMAGE")"
+            echo "matrix=$matrix"
             echo "versions=$(scripts/plan.sh versions "$IMAGE")"
             echo "latest=$(yq '.latest' factory.yaml)"
           } >>"$GITHUB_OUTPUT"
@@ -56,10 +83,14 @@ jobs:
       matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     permissions:
       contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      security-events: write
+      packages: read # pull the published base (roles), even while private
+    # "<manifest digest> <SBOM sha256>". Matrix legs share one set of outputs,
+    # so each leg may only fill in its own.
+    outputs:
+      image-9-amd64: ${{ matrix.version == '9' && matrix.arch == 'amd64' && steps.export.outputs.gated || '' }}
+      image-9-arm64: ${{ matrix.version == '9' && matrix.arch == 'arm64' && steps.export.outputs.gated || '' }}
+      image-10-amd64: ${{ matrix.version == '10' && matrix.arch == 'amd64' && steps.export.outputs.gated || '' }}
+      image-10-arm64: ${{ matrix.version == '10' && matrix.arch == 'arm64' && steps.export.outputs.gated || '' }}
     env:
       IMAGE: ${{ inputs.image }}
       VERSION: ${{ matrix.version }}
@@ -91,10 +122,6 @@ jobs:
         run: |
           echo "$GH_TOKEN" | sudo env -u XDG_RUNTIME_DIR podman login ghcr.io -u "$ACTOR" --password-stdin
           echo "$GH_TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
-          # actions/attest (push-to-registry) only reads ~/.docker/config.json.
-          mkdir -p ~/.docker
-          echo "$GH_TOKEN" | podman login ghcr.io -u "$ACTOR" --password-stdin \
-            --compat-auth-file ~/.docker/config.json
 
       - name: Resolve base image digest
         if: inputs.image != 'base'
@@ -114,12 +141,14 @@ jobs:
         id: trivy
         run: scripts/scan.sh "$IMAGE" "$VERSION"
 
-      - name: Upload Trivy results to code scanning
-        if: always() && hashFiles(format('out/{0}-{1}-{2}/trivy.sarif', inputs.image, matrix.version, matrix.arch)) != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - name: Hand Trivy results to the sarif job
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          sarif_file: out/${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}/trivy.sarif
-          category: trivy-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+          name: trivy-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+          path: out/${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}/trivy.sarif
+          if-no-files-found: ignore # the build failed before the scan
+          retention-days: 1
 
       - name: CIS compliance gate (OpenSCAP)
         run: scripts/oscap-gate.sh "$IMAGE" "$VERSION"
@@ -139,26 +168,145 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      # ---- publish (main only; every gate above has passed) -------------
-      - name: Push per-arch image
+      # ---- hand-off (main only; every gate above has passed) -------------
+      - name: Export the gated image
+        id: export
         if: inputs.publish
+        run: |
+          out="$RUNNER_TEMP/image"
+          mkdir -p "$out"
+          # Absolute path: sudo's secure_path may not include skopeo's.
+          sudo env -u XDG_RUNTIME_DIR "$(command -v skopeo)" copy --quiet \
+            --dest-compress-format gzip \
+            "containers-storage:localhost/bootc-$IMAGE:$VERSION" "oci-archive:$out/image.oci.tar"
+          sudo chown "$(id -u):$(id -g)" "$out/image.oci.tar"
+          # index.json names the manifest (skopeo inspect would unpack GBs).
+          digest=$(tar -xOf "$out/image.oci.tar" index.json | jq -r '.manifests[0].digest')
+          cp "out/$IMAGE-$VERSION-$ARCH/sbom.spdx.json" "$out/"
+          sbom_sha=$(sha256sum <"$out/sbom.spdx.json" | cut -d' ' -f1)
+          echo "gated=$digest $sbom_sha" >>"$GITHUB_OUTPUT"
+          echo "Gated image $digest ($(du -h "$out/image.oci.tar" | cut -f1))"
+
+      - name: Hand the image to the push job
+        if: inputs.publish
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/image/
+          compression-level: 0 # layers are gzipped already
+          retention-days: 1
+          if-no-files-found: error
+
+  sarif:
+    needs: [matrix, build]
+    # Also after a failed gate: that is when the findings matter.
+    if: ${{ !cancelled() && needs.matrix.result == 'success' }}
+    name: sarif ${{ inputs.image }} ${{ matrix.version }} ${{ matrix.arch }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      # upload-sarif reads the commit from a checkout; nothing from it is run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # pattern, not name: no artifact (build failed before the scan) is fine.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: trivy-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+          path: trivy-results
+          merge-multiple: true
+      - name: Upload Trivy results to code scanning
+        if: hashFiles('trivy-results/trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-results/trivy.sarif
+          category: trivy-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+
+  push:
+    needs: [matrix, build]
+    if: inputs.publish
+    name: push ${{ inputs.image }} ${{ matrix.version }} ${{ matrix.arch }}
+    # Always GitHub-hosted: this job holds packages:write and id-token.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    permissions:
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ${{ inputs.image }}
+      VERSION: ${{ matrix.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      # No checkout: nothing from the repository runs here.
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/image
+
+      - name: Check the artifact against the build job's outputs
+        id: check
+        env:
+          GATED: ${{ needs.build.outputs[format('image-{0}-{1}', matrix.version, matrix.arch)] }}
+        run: |
+          read -r want sbom_sha <<<"$GATED"
+          [[ $want =~ ^sha256:[0-9a-f]{64}$ && $sbom_sha =~ ^[0-9a-f]{64}$ ]] ||
+            { echo "::error::no gated digests from the build job: '$GATED'"; exit 1; }
+          dir="$RUNNER_TEMP/image"
+          echo "$sbom_sha  $dir/sbom.spdx.json" | sha256sum --check --strict --quiet ||
+            { echo "::error::SBOM differs from the gated one"; exit 1; }
+          # Unpack with skopeo, which hashes every blob and the manifest, and
+          # push that copy: what is checked is what gets pushed.
+          skopeo copy --quiet --preserve-digests --digestfile "$RUNNER_TEMP/checked" \
+            "oci-archive:$dir/image.oci.tar" "oci:$RUNNER_TEMP/checked-image"
+          have=$(<"$RUNNER_TEMP/checked")
+          [[ $have == "$want" ]] || { echo "::error::artifact holds $have, gated image is $want"; exit 1; }
+          echo "digest=$want" >>"$GITHUB_OUTPUT"
+
+      - name: Push per-arch image
         id: push
         env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
           RUN_NUMBER: ${{ github.run_number }}
+          WANT: ${{ steps.check.outputs.digest }}
         run: |
+          echo "$GH_TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
+          # actions/attest (push-to-registry) only reads ~/.docker/config.json.
+          mkdir -p ~/.docker
+          echo "$GH_TOKEN" | podman login ghcr.io -u "$ACTOR" --password-stdin \
+            --compat-auth-file ~/.docker/config.json
+
+          repo="ghcr.io/${OWNER,,}/bootc-$IMAGE"
           build_tag="$VERSION-$(date -u +%Y%m%d).$RUN_NUMBER-$ARCH"
-          repo="$IMAGE_NAMESPACE/bootc-$IMAGE"
-          sudo env -u XDG_RUNTIME_DIR podman push --digestfile "$RUNNER_TEMP/digest" \
-            "localhost/bootc-$IMAGE:$VERSION" "docker://$repo:$build_tag"
-          digest=$(<"$RUNNER_TEMP/digest")
-          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          skopeo copy --quiet --preserve-digests --digestfile "$RUNNER_TEMP/pushed" \
+            "oci:$RUNNER_TEMP/checked-image" "docker://$repo:$build_tag"
+          pushed=$(<"$RUNNER_TEMP/pushed")
+          [[ $pushed == "$WANT" ]] || { echo "::error::registry has $pushed, gated image is $WANT"; exit 1; }
+          echo "Pushed $repo:$build_tag@$pushed"
+
+          echo "digest=$pushed" >>"$GITHUB_OUTPUT"
           echo "repo=$repo" >>"$GITHUB_OUTPUT"
           mkdir -p "$RUNNER_TEMP/publish"
-          echo "$digest" >"$RUNNER_TEMP/publish/$ARCH"
-          cp "out/$IMAGE-$VERSION-$ARCH/sbom.spdx.json" "$RUNNER_TEMP/publish/$ARCH.spdx.json"
+          cp "$RUNNER_TEMP/image/sbom.spdx.json" "$RUNNER_TEMP/publish/$ARCH.spdx.json"
 
       - name: Attest build provenance (per-arch)
-        if: inputs.publish
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ steps.push.outputs.repo }}
@@ -167,17 +315,15 @@ jobs:
           create-storage-record: false
 
       - name: Attest SBOM (per-arch)
-        if: inputs.publish
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ steps.push.outputs.repo }}
           subject-digest: ${{ steps.push.outputs.digest }}
-          sbom-path: out/${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}/sbom.spdx.json
+          sbom-path: ${{ runner.temp }}/image/sbom.spdx.json
           push-to-registry: true
           create-storage-record: false
 
-      - name: Hand digest and SBOM to the publish job
-        if: inputs.publish
+      - name: Hand the SBOM to the publish job
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: publish-${{ inputs.image }}-${{ matrix.version }}-${{ matrix.arch }}
@@ -185,11 +331,12 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: [matrix, build]
+    needs: [matrix, build, push]
     if: inputs.publish
     name: publish ${{ inputs.image }} ${{ matrix.version }}
     runs-on: ubuntu-26.04
     # Holds COSIGN_PRIVATE_KEY / COSIGN_PASSWORD; deployable from main only.
+    # No id-token: a compromised step here can't mint an OIDC identity.
     environment: release
     strategy:
       fail-fast: false
@@ -198,8 +345,9 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
+    outputs:
+      index-9: ${{ matrix.version == '9' && steps.publish.outputs.digest || '' }}
+      index-10: ${{ matrix.version == '10' && steps.publish.outputs.digest || '' }}
     env:
       IMAGE: ${{ inputs.image }}
       VERSION: ${{ matrix.version }}
@@ -220,6 +368,26 @@ jobs:
           path: ${{ runner.temp }}/publish
           merge-multiple: true
 
+      - name: Collect the gated digests and SBOMs
+        env:
+          GATED: ${{ toJSON(needs.build.outputs) }}
+          MATRIX: ${{ needs.matrix.outputs.matrix }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests" "$RUNNER_TEMP/sboms"
+          arches=$(jq -r --arg v "$VERSION" '.include[] | select(.version == $v) | .arch' <<<"$MATRIX")
+          [[ -n $arches ]] || { echo "::error::no arch to publish for $VERSION"; exit 1; }
+          # Only the arches that were built; ignore anything else downloaded.
+          for arch in $arches; do
+            read -r digest sbom_sha < <(jq -r --arg k "image-$VERSION-$arch" '.[$k] // ""' <<<"$GATED")
+            [[ $digest =~ ^sha256:[0-9a-f]{64}$ && $sbom_sha =~ ^[0-9a-f]{64}$ ]] ||
+              { echo "::error::no gated digests for $VERSION $arch"; exit 1; }
+            sbom="$RUNNER_TEMP/publish/$arch.spdx.json"
+            echo "$sbom_sha  $sbom" | sha256sum --check --strict --quiet ||
+              { echo "::error::$arch SBOM differs from the gated one"; exit 1; }
+            echo "$digest" >"$RUNNER_TEMP/digests/$arch"
+            cp "$sbom" "$RUNNER_TEMP/sboms/"
+          done
+
       - name: Create index, sign, attest SBOMs, promote tags
         id: publish
         env:
@@ -236,31 +404,58 @@ jobs:
           LATEST=false
           [[ $VERSION == "$LATEST_VERSION" ]] && LATEST=true
           export IMAGE_NAMESPACE BUILD_TAG LATEST
-          digests="$RUNNER_TEMP/digests"; sboms="$RUNNER_TEMP/sboms"
-          mkdir -p "$digests" "$sboms"
-          for f in "$RUNNER_TEMP"/publish/*; do
-            case $f in
-              *.spdx.json) mv "$f" "$sboms/" ;;
-              *) mv "$f" "$digests/" ;;
-            esac
-          done
           echo "$GH_TOKEN" | podman login ghcr.io -u "$ACTOR" --password-stdin
           echo "$GH_TOKEN" | cosign login ghcr.io -u "$ACTOR" --password-stdin
-          SBOM_DIR="$sboms" scripts/publish.sh "$IMAGE" "$VERSION" "$digests"
-          echo "repo=$IMAGE_NAMESPACE/bootc-$IMAGE" >>"$GITHUB_OUTPUT"
+          SBOM_DIR="$RUNNER_TEMP/sboms" scripts/publish.sh "$IMAGE" "$VERSION" "$RUNNER_TEMP/digests"
+
+  attest-index:
+    needs: [matrix, publish]
+    if: inputs.publish
+    name: attest index ${{ inputs.image }} ${{ matrix.version }}
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.matrix.outputs.versions) }}
+    permissions:
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      # No checkout and no key: only actions/attest and gh run here.
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - name: Resolve the index
+        id: index
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ needs.publish.outputs[format('index-{0}', matrix.version)] }}
+        run: |
+          [[ $DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::bad index digest '$DIGEST'"; exit 1; }
+          [[ $IMAGE =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::bad image name '$IMAGE'"; exit 1; }
+          echo "digest=$DIGEST" >>"$GITHUB_OUTPUT"
+          echo "repo=ghcr.io/${OWNER,,}/bootc-$IMAGE" >>"$GITHUB_OUTPUT"
+          # actions/attest (push-to-registry) only reads ~/.docker/config.json.
+          mkdir -p ~/.docker
+          echo "$GH_TOKEN" | podman login ghcr.io -u "$ACTOR" --password-stdin \
+            --compat-auth-file ~/.docker/config.json
 
       - name: Attest build provenance (index)
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-name: ${{ steps.publish.outputs.repo }}
-          subject-digest: ${{ steps.publish.outputs.digest }}
+          subject-name: ${{ steps.index.outputs.repo }}
+          subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
           create-storage-record: false
 
       - name: Verify what we just published
         env:
           GH_TOKEN: ${{ github.token }}
-          REF: ${{ steps.publish.outputs.repo }}@${{ steps.publish.outputs.digest }}
+          REF: ${{ steps.index.outputs.repo }}@${{ steps.index.outputs.digest }}
           REPO: ${{ github.repository }}
         run: |
           # The cosign-key signatures were verified the way bootc does
@@ -271,8 +466,8 @@ jobs:
           echo "Provenance verified for $REF"
       - name: Summary
         env:
-          REF: ${{ steps.publish.outputs.repo }}:${{ matrix.version }}
-          DIGEST: ${{ steps.publish.outputs.digest }}
+          REF: ${{ steps.index.outputs.repo }}:${{ matrix.version }}
+          DIGEST: ${{ steps.index.outputs.digest }}
         run: |
           {
             echo "### Published \`$REF\`"
