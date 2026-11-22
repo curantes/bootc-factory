@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prepare a GitHub-hosted Ubuntu runner: KVM access and bcvk for boot tests,
-# qemu-img for disk images.
+# qemu-img and a working osbuild sandbox for disk images.
 #
 #   scripts/ci-setup.sh [boot-test] [disk-image]
 # shellcheck source=lib.sh
@@ -38,4 +38,22 @@ if [[ " $* " == *" boot-test "* ]]; then
 	tar -xzf "$tmp/bcvk.tar.gz" -C "$tmp"
 	sudo install -m 0755 "$tmp/bcvk-x86_64-unknown-linux-gnu" /usr/local/bin/bcvk
 	bcvk --version
+fi
+
+if [[ " $* " == *" disk-image "* ]]; then
+	# AppArmor attaches profiles by path, also inside privileged containers.
+	# Ubuntu's bwrap-userns-restrict thus catches image-builder's /usr/bin/bwrap
+	# and takes every capability from its children, so osbuild can't chown or
+	# mount. Unload that one profile, and only on a throwaway runner: it
+	# guards the host's user namespace restriction.
+	profile=/etc/apparmor.d/bwrap-userns-restrict
+	if [[ ${RUNNER_ENVIRONMENT:-} != github-hosted ]]; then
+		log "Not a GitHub-hosted runner: leaving AppArmor alone"
+	# unpriv_bwrap is only defined in that file (other profiles are named bwrap).
+	elif sudo grep -qs '^unpriv_bwrap ' /sys/kernel/security/apparmor/profiles; then
+		log "Unloading AppArmor profile $profile"
+		sudo apparmor_parser --remove "$profile"
+	else
+		log "AppArmor profile bwrap-userns-restrict is not loaded"
+	fi
 fi
